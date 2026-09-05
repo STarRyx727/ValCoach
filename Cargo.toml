@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "crates/domain",
+    "crates/replay_adapter",
+    "crates/vrf_probe",
+    "crates/metrics",
+    "crates/db",
+    "apps/server",
+]
+resolver = "3"
+exclude = ["vrfkit-main"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.97"
+
+[workspace.dependencies]
+async-trait = "0.1.89"
+async-stream = "0.3.6"
+argon2 = "0.5.3"
+axum = { version = "0.8.8", features = ["multipart"] }
+password-hash = { version = "0.5.0", features = ["getrandom"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sqlx = { version = "0.8.6", features = ["macros", "migrate", "runtime-tokio", "sqlite"] }
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7.18"
+tokio-stream = { version = "0.1.17", features = ["sync"] }
+futures-core = "0.3.31"
+hex = "0.4.3"
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
+sha2 = "0.10.9"
+tracing = "0.1.44"
+tower = { version = "0.5.3", features = ["util"] }
+tower-sessions = "0.15.0"
+uuid = { version = "1.18.1", features = ["v4"] }

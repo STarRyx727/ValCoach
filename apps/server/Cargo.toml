@@ -1,0 +1,33 @@
+[package]
+name = "valcoach-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+argon2.workspace = true
+axum.workspace = true
+futures-util = "0.3.31"
+http-body-util = "0.1.3"
+password-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tower-sessions.workspace = true
+tower.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+valcoach-db = { path = "../../crates/db" }
+valcoach-domain = { path = "../../crates/domain" }
+valcoach-metrics = { path = "../../crates/metrics" }
+valcoach-replay-adapter = { path = "../../crates/replay_adapter" }
+valcoach-vrf-probe = { path = "../../crates/vrf_probe" }
+
+[dev-dependencies]
+sqlx.workspace = true
+tempfile = "3.24.0"

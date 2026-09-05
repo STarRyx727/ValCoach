@@ -1,0 +1,191 @@
+diff --git a/src/CliReader/CliCommandFactory.cs b/src/CliReader/CliCommandFactory.cs
+index 07d7b51..3b9cbbe 100644
+--- a/src/CliReader/CliCommandFactory.cs
++++ b/src/CliReader/CliCommandFactory.cs
+@@ -39,10 +39,10 @@ internal static class CliCommandFactory
+         };
+         var profile = new Option<string>("--profile", "-p")
+         {
+-            Description = "Parse profile: 'default' or 'viewer'.",
++            Description = "Parse profile: 'default', 'viewer', or compact 'valcoach'.",
+             DefaultValueFactory = _ => "default",
+         };
+-        profile.AcceptOnlyFromAmong("default", "viewer");
++        profile.AcceptOnlyFromAmong("default", "viewer", "valcoach");
+
+         var command = new Command("export", "Export replay events and movement as versioned NDJSON.");
+         command.Arguments.Add(replayPath);
+diff --git a/src/CliReader/JsonExport/ExportOptions.cs b/src/CliReader/JsonExport/ExportOptions.cs
+index 0bb281d..0e9345c 100644
+--- a/src/CliReader/JsonExport/ExportOptions.cs
++++ b/src/CliReader/JsonExport/ExportOptions.cs
+@@ -6,7 +6,8 @@ internal sealed record ExportOptions(
+     string ReplayPath,
+     string OutputDirectory,
+     string ProfileName,
+-    ParseProfile ParseProfile)
++    ParseProfile ParseProfile,
++    bool CompactOutput)
+ {
+     public static ExportOptions Create(
+         string replayPath,
+@@ -21,11 +22,12 @@ internal sealed record ExportOptions(
+                 EnabledCategories = ExportCategory.All,
+                 CaptureDiagnosticFields = true,
+             },
++            "valcoach" => ParseProfile.Default,
+             _ => throw new ArgumentOutOfRangeException(
+                 nameof(profileName),
+                 profileName,
+-                "Export profile must be 'default' or 'viewer'."),
++                "Export profile must be 'default', 'viewer', or 'valcoach'."),
+         };
+-        return new ExportOptions(replayPath, outputDirectory, profileName, parseProfile);
++        return new ExportOptions(replayPath, outputDirectory, profileName, parseProfile, profileName == "valcoach");
+     }
+ }
+diff --git a/src/CliReader/JsonExport/ReplayEventJsonWriter.cs b/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
+index fa6744f..2c2aa4d 100644
+--- a/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
++++ b/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
+@@ -158,6 +158,19 @@ internal sealed class ReplayEventJsonWriter
+         writer.WriteEndObject();
+     }
+
++    public void WriteCompactMovement(
++        Utf8JsonWriter writer, RemoteCharacterMovementReceived movement)
++    {
++        writer.WriteStartObject();
++        WriteEventDiscriminator(writer, "remote_character_movement", movement.TimeSeconds, movement.PacketId);
++        WriteObjectIdentity(writer, movement.ActorNetGuid, movement.ObjectNetGuid, movement.ChannelIndex);
++        writer.WriteNumber("shooter_character_net_guid", movement.ShooterCharacterNetGuidValue);
++        writer.WritePropertyName("position");
++        ReplayJsonNormalizer.WriteVector(writer, movement.Move.Position);
++        WriteNullableValue(writer, "velocity", movement.Move.Velocity);
++        writer.WriteEndObject();
++    }
++
+     private static void WriteEquippable(Utf8JsonWriter writer, ValorantEquippable? equippable)
+     {
+         if (equippable is null)
+diff --git a/src/CliReader/JsonExport/ReplayExportRunner.cs b/src/CliReader/JsonExport/ReplayExportRunner.cs
+index e9fde78..e99d919 100644
+--- a/src/CliReader/JsonExport/ReplayExportRunner.cs
++++ b/src/CliReader/JsonExport/ReplayExportRunner.cs
+@@ -30,7 +30,7 @@ internal sealed class ReplayExportRunner
+         var sourceSha256 = Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();
+         file.Position = 0;
+
+-        var sink = ReplayExportSink.Create(outputDirectory);
++        var sink = ReplayExportSink.Create(outputDirectory, options.CompactOutput);
+         ReplayReaderContext context;
+         try
+         {
+diff --git a/src/CliReader/JsonExport/ReplayExportSink.cs b/src/CliReader/JsonExport/ReplayExportSink.cs
+index d9a85fb..cc4a90e 100644
+--- a/src/CliReader/JsonExport/ReplayExportSink.cs
++++ b/src/CliReader/JsonExport/ReplayExportSink.cs
+@@ -1,3 +1,4 @@
++using Replay.Models.Descriptors;
+ using Replay.Models.Events;
+ using Replay.Valorant.Combat;
+ using Replay.Valorant.Movement;
+@@ -12,20 +13,25 @@ internal sealed class ReplayExportSink :
+     private readonly NdjsonWriter _events;
+     private readonly NdjsonWriter _movement;
+     private readonly ReplayEventJsonWriter _eventWriter;
++    private readonly bool _compactOutput;
++    private readonly Dictionary<uint, int> _lastMovementTimeByCharacter = [];
++    private const int CompactMovementIntervalMs = 100;
+
+     internal ReplayExportSink(
+         NdjsonWriter events,
+         NdjsonWriter movement,
+-        ReplayEventJsonWriter eventWriter)
++        ReplayEventJsonWriter eventWriter,
++        bool compactOutput = false)
+     {
+         _events = events;
+         _movement = movement;
+         _eventWriter = eventWriter;
++        _compactOutput = compactOutput;
+     }
+
+     public ReplayExportStatistics Statistics { get; } = new();
+
+-    public static ReplayExportSink Create(string outputDirectory)
++    public static ReplayExportSink Create(string outputDirectory, bool compactOutput = false)
+     {
+         Directory.CreateDirectory(outputDirectory);
+         var events = NdjsonWriter.Create(Path.Combine(outputDirectory, "events.ndjson"));
+@@ -35,7 +41,8 @@ internal sealed class ReplayExportSink :
+             return new ReplayExportSink(
+                 events,
+                 movement,
+-                new ReplayEventJsonWriter(new ReplayJsonNormalizer()));
++                new ReplayEventJsonWriter(new ReplayJsonNormalizer()),
++                compactOutput);
+         }
+         catch
+         {
+@@ -60,8 +67,11 @@ internal sealed class ReplayExportSink :
+                 EmitExportGroup(exportGroup);
+                 break;
+             case RpcReceived rpc:
+-                _events.Write(writer => _eventWriter.WriteRpc(writer, rpc));
+-                Statistics.RpcCount++;
++                if (!_compactOutput || ShouldEmitCompact(rpc.Categories, rpc.WasDecoded))
++                {
++                    _events.Write(writer => _eventWriter.WriteRpc(writer, rpc));
++                    Statistics.RpcCount++;
++                }
+                 break;
+             case ValorantShotReceived shot:
+                 _events.Write(writer => _eventWriter.WriteValorantShot(writer, shot));
+@@ -75,7 +85,26 @@ internal sealed class ReplayExportSink :
+
+     public void EmitRemoteCharacterMovement(RemoteCharacterMovementReceived movement)
+     {
+-        _movement.Write(writer => _eventWriter.WriteMovement(writer, movement));
++        var timeMs = checked((int)Math.Round(movement.TimeSeconds * 1000.0, MidpointRounding.AwayFromZero));
++        if (_compactOutput &&
++            _lastMovementTimeByCharacter.TryGetValue(movement.ShooterCharacterNetGuidValue, out var lastTimeMs) &&
++            timeMs - lastTimeMs < CompactMovementIntervalMs)
++        {
++            return;
++        }
++
++        _lastMovementTimeByCharacter[movement.ShooterCharacterNetGuidValue] = timeMs;
++        _movement.Write(writer =>
++        {
++            if (_compactOutput)
++            {
++                _eventWriter.WriteCompactMovement(writer, movement);
++            }
++            else
++            {
++                _eventWriter.WriteMovement(writer, movement);
++            }
++        });
+         Statistics.MovementCount++;
+     }
+
+@@ -99,7 +128,18 @@ internal sealed class ReplayExportSink :
+             return;
+         }
+
++        if (_compactOutput && !ShouldEmitCompact(exportGroup.Categories, true))
++        {
++            return;
++        }
++
+         _events.Write(writer => _eventWriter.WriteExportGroup(writer, exportGroup));
+         Statistics.ExportGroupCount++;
+     }
++
++    private static bool ShouldEmitCompact(ExportCategory categories, bool wasDecoded)
++    {
++        var nonMovement = ExportCategory.All & ~ExportCategory.Movement;
++        return wasDecoded && (categories & nonMovement) != ExportCategory.None;
++    }
+ }

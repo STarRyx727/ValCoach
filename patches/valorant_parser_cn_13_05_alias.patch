@@ -1,0 +1,15 @@
+diff --git a/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransform13_05.cs b/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransform13_05.cs
+--- a/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransform13_05.cs
++++ b/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransform13_05.cs
+@@ -9,7 +9,12 @@ public sealed class ValorantSeededTransform13_05 : IPayloadTransform
+     private const uint InitASeedAddend = 0x13u;
+     private const byte TailXor = 0x13;
+
+-    public IReadOnlyCollection<string> SupportedReplayVersions { get; } = ["++Ares-Core+release-13.05"];
++    public IReadOnlyCollection<string> SupportedReplayVersions { get; } =
++    [
++        "++Ares-Core+release-13.05",
++        "++Ares-Core+release-china-13.05",
++    ];
+
+     public int GetOutputByteCount(int bitCount) => ValorantSeededTransformHelpers.GetOutputByteCount(bitCount);

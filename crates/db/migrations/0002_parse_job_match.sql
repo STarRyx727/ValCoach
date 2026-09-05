@@ -1,0 +1,1 @@
+ALTER TABLE parse_jobs ADD COLUMN match_id TEXT REFERENCES matches(id) ON DELETE SET NULL;

@@ -1,0 +1,24 @@
+# Private or large local replay data
+*.vrf
+*.db
+.env
+data/
+artifacts/
+Demos-Global/
+Demos-China/
+ValorantReplayParser-main/
+vrfkit-main/
+ForCodex/
+
+# Third-party parser checkout and build output
+.external/
+**/bin/
+**/obj/
+target/
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
