@@ -917,6 +917,17 @@ mod tests {
                         .expect("movement count");
                 assert_eq!(event_count, 138_065);
                 assert_eq!(movement_count, 165_047);
+                let roster: Vec<(String, i64)> = sqlx::query_as(
+                    "SELECT team, COUNT(*) FROM players WHERE match_id = ? GROUP BY team ORDER BY team",
+                )
+                .bind(&match_id)
+                .fetch_all(database.pool())
+                .await
+                .expect("team roster");
+                assert_eq!(
+                    roster,
+                    vec![("team_a".to_owned(), 5), ("team_b".to_owned(), 5)]
+                );
                 let metric_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM match_metrics WHERE match_id = ? AND metric_name = 'movement_summary_v1'",
                 )

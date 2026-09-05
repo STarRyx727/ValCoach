@@ -1,6 +1,8 @@
 # Agent providers and token accounting
 
-ValCoach has one evidence-grounded coaching endpoint with three transport adapters:
+ValCoach has one evidence-grounded coaching endpoint with three transport adapters. Each signed-in
+user can configure these values from **模型设置** in the web UI; the table below also documents the
+equivalent server environment fallback:
 
 | `VALCOACH_LLM_PROVIDER` | API transport | Default base URL | Default key variable |
 |---|---|---|---|
@@ -24,8 +26,10 @@ Cost is deliberately configuration-driven because provider/model prices change. 
 `VALCOACH_LLM_INPUT_USD_PER_MILLION` and `VALCOACH_LLM_OUTPUT_USD_PER_MILLION` are set, ValCoach
 records an estimate in micro-USD; otherwise token totals remain exact and cost stays unpriced.
 
-API keys are read from environment variables, held only in process memory, redacted from `Debug`,
-and never stored in conversations, usage rows, logs, Replay Bundles, or Git. The model receives the
+API keys supplied through the web UI are sent once to the local backend and held only in process
+memory; they disappear when the server restarts or when the user clears the setting. Environment
+keys are also held only in memory. Keys are never returned to the browser, stored in conversations,
+usage rows, databases, logs, Replay Bundles, or Git. The model receives the
 stable match metadata, capability map, compact deterministic metrics, selected-player evidence and
 limitations—not the `.vrf` file or full raw NDJSON.
 
@@ -39,5 +43,7 @@ API routes:
 
 - `GET /api/agent/status`
 - `GET /api/agent/usage`
+- `POST /api/agent/settings` to set a per-user, process-memory-only provider configuration
+- `DELETE /api/agent/settings` to clear it and fall back to environment configuration, if present
 - `POST /api/matches/{id}/coach` with `{ "question": "..." }`
 - `GET /api/matches/{id}/coaching`

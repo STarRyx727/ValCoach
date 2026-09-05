@@ -67,6 +67,10 @@ fn app(state: AppState) -> Router {
         .route("/api/matches/{id}/coaching", get(agent::history))
         .route("/api/matches/{id}/bind-player", post(matches::bind_player))
         .route("/api/agent/status", get(agent::status))
+        .route(
+            "/api/agent/settings",
+            post(agent::configure_settings).delete(agent::clear_settings),
+        )
         .route("/api/agent/usage", get(agent::usage))
         .route("/api/jobs/{id}", get(jobs::get_job))
         .route("/api/jobs/{id}/bundle", get(jobs::get_job_bundle))
@@ -97,7 +101,7 @@ mod tests {
     use crate::{AppState, app, auth::AuthState, jobs::JobManager};
 
     #[tokio::test]
-    async fn auth_routes_register_read_session_and_logout() {
+    async fn authenticated_routes_protect_sessions_and_agent_keys() {
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("database");
@@ -154,6 +158,56 @@ mod tests {
             std::str::from_utf8(&body)
                 .expect("JSON body")
                 .contains("smoke_user")
+        );
+
+        let configure_agent = Request::builder()
+            .method("POST")
+            .uri("/api/agent/settings")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .body(Body::from(
+                r#"{"provider":"openai","model":"test-model","api_key":"secret-that-must-not-leak","base_url":"http://127.0.0.1:1/v1","max_output_tokens":800,"input_usd_per_million":null,"output_usd_per_million":null}"#,
+            ))
+            .expect("agent settings request");
+        let response = application
+            .clone()
+            .oneshot(configure_agent)
+            .await
+            .expect("agent settings response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("settings response body")
+            .to_bytes();
+        let body = std::str::from_utf8(&body).expect("settings JSON body");
+        assert!(body.contains(r#""configured":true"#));
+        assert!(body.contains(r#""api_key_in_memory":true"#));
+        assert!(!body.contains("secret-that-must-not-leak"));
+
+        let clear_agent = Request::builder()
+            .method("DELETE")
+            .uri("/api/agent/settings")
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .expect("clear agent settings request");
+        let response = application
+            .clone()
+            .oneshot(clear_agent)
+            .await
+            .expect("clear agent settings response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("clear response body")
+            .to_bytes();
+        assert!(
+            std::str::from_utf8(&body)
+                .expect("clear JSON body")
+                .contains(r#""configured":false"#)
         );
 
         let logout = Request::builder()

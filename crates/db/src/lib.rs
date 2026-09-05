@@ -1,6 +1,9 @@
 //! SQLite persistence for ValCoach-owned stable domain data.
 
-use std::{collections::BTreeSet, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    str::FromStr,
+};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -38,6 +41,10 @@ pub struct PlayerRecord {
     pub match_id: String,
     pub stable_player_id: Option<String>,
     pub display_name: Option<String>,
+    pub team: Option<String>,
+    pub agent_name: Option<String>,
+    pub player_slot: Option<i64>,
+    pub is_bound: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -300,7 +307,8 @@ impl Database {
 
         let mut events = Vec::with_capacity(INSERT_BATCH_SIZE);
         let mut movement = Vec::with_capacity(INSERT_BATCH_SIZE);
-        let mut player_identities = BTreeSet::new();
+        let mut roster = ReplayRoster::default();
+        let mut finalized_roster = None;
         let mut counts = PersistedRecordCounts::default();
         let records = ParsedBundleSource.records(replay.bundle.clone(), cancel);
         futures_util::pin_mut!(records);
@@ -308,6 +316,7 @@ impl Database {
         while let Some(record) = records.next().await {
             match record? {
                 NormalizedRecord::Event(event) => {
+                    roster.observe(&event);
                     events.push(PersistedEvent {
                         timestamp_ms: event.timestamp_ms,
                         event_type: event.event_type,
@@ -320,12 +329,11 @@ impl Database {
                     }
                 }
                 NormalizedRecord::Movement(sample) => {
+                    let finalized =
+                        finalized_roster.get_or_insert_with(|| roster.finalize(match_id));
                     let player_id = sample
                         .character_net_guid
-                        .map(|guid| format!("{match_id}:character:{guid}"));
-                    if let Some(player_id) = &player_id {
-                        player_identities.insert(player_id.clone());
-                    }
+                        .and_then(|guid| finalized.pawn_to_player.get(&guid).cloned());
                     movement.push(PersistedMovement {
                         player_id,
                         timestamp_ms: sample.timestamp_ms,
@@ -345,7 +353,8 @@ impl Database {
         }
         flush_events(&mut transaction, match_id, &mut events).await?;
         flush_movement(&mut transaction, match_id, &mut movement).await?;
-        insert_replay_players(&mut transaction, match_id, player_identities).await?;
+        let finalized_roster = finalized_roster.unwrap_or_else(|| roster.finalize(match_id));
+        insert_replay_players(&mut transaction, match_id, finalized_roster.players).await?;
 
         if counts.event_count != replay.summary.event_count
             || counts.movement_count != replay.summary.movement_count
@@ -367,13 +376,32 @@ impl Database {
         user_id: &str,
         match_id: &str,
     ) -> Result<Vec<PlayerRecord>, DatabaseError> {
-        let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                i64,
+            ),
+        >(
             r#"
-            SELECT players.id, players.match_id, players.stable_player_id, players.display_name
+            SELECT players.id, players.match_id, players.stable_player_id, players.display_name,
+                   players.team, players.agent_name, players.player_slot,
+                   EXISTS(
+                       SELECT 1 FROM valorant_accounts
+                       WHERE valorant_accounts.user_id = matches.user_id
+                         AND valorant_accounts.subject_id = players.stable_player_id
+                   )
             FROM players
             JOIN matches ON matches.id = players.match_id
             WHERE players.match_id = ? AND matches.user_id = ?
-            ORDER BY players.id
+              AND players.team IN ('team_a', 'team_b')
+            ORDER BY players.team, players.player_slot, players.id
             "#,
         )
         .bind(match_id)
@@ -383,11 +411,24 @@ impl Database {
         Ok(rows
             .into_iter()
             .map(
-                |(id, match_id, stable_player_id, display_name)| PlayerRecord {
+                |(
                     id,
                     match_id,
                     stable_player_id,
                     display_name,
+                    team,
+                    agent_name,
+                    player_slot,
+                    is_bound,
+                )| PlayerRecord {
+                    id,
+                    match_id,
+                    stable_player_id,
+                    display_name,
+                    team,
+                    agent_name,
+                    player_slot,
+                    is_bound: is_bound != 0,
                 },
             )
             .collect())
@@ -828,6 +869,127 @@ pub struct PersistedRecordCounts {
     pub movement_count: u64,
 }
 
+#[derive(Debug, Default)]
+struct ReplayRoster {
+    player_states: BTreeMap<u64, ReplayPlayerDraft>,
+    pawn_to_state: HashMap<u64, u64>,
+}
+
+#[derive(Debug, Default)]
+struct ReplayPlayerDraft {
+    slot: Option<i64>,
+    subject: Option<String>,
+    pawn_guids: BTreeSet<u64>,
+    agent_name: Option<String>,
+}
+
+#[derive(Debug)]
+struct ReplayPlayerIdentity {
+    id: String,
+    stable_player_id: String,
+    team: String,
+    agent_name: Option<String>,
+    player_slot: i64,
+}
+
+#[derive(Debug, Default)]
+struct FinalizedRoster {
+    players: Vec<ReplayPlayerIdentity>,
+    pawn_to_player: HashMap<u64, String>,
+}
+
+impl ReplayRoster {
+    fn observe(&mut self, event: &valcoach_domain::GenericEvent) {
+        if event.event_type != "export_group_received" {
+            return;
+        }
+        let Some(actor_guid) = event.actor_net_guid else {
+            return;
+        };
+        let payload = event.raw.get("payload").unwrap_or(&serde_json::Value::Null);
+        let export_path = event
+            .raw
+            .get("export_group_path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+
+        if export_path.contains("BombPlayerState.BombPlayerState_C") {
+            let draft = self.player_states.entry(actor_guid).or_default();
+            if let Some(slot) = payload.get("PlayerId").and_then(serde_json::Value::as_i64) {
+                draft.slot = Some(slot);
+            }
+            if let Some(subject) = payload
+                .get("Subject")
+                .and_then(serde_json::Value::as_str)
+                .filter(|subject| !subject.is_empty())
+            {
+                draft.subject = Some(subject.to_owned());
+            }
+            for field in ["PossessedCharacter", "SpawnedCharacter"] {
+                if let Some(pawn_guid) = payload.get(field).and_then(serde_json::Value::as_u64) {
+                    draft.pawn_guids.insert(pawn_guid);
+                    self.pawn_to_state.insert(pawn_guid, actor_guid);
+                }
+            }
+        }
+
+        if let Some(player_state_guid) = payload
+            .get("PlayerState")
+            .and_then(serde_json::Value::as_u64)
+        {
+            self.pawn_to_state.insert(actor_guid, player_state_guid);
+            let draft = self.player_states.entry(player_state_guid).or_default();
+            draft.pawn_guids.insert(actor_guid);
+            if draft.agent_name.is_none() {
+                draft.agent_name = event
+                    .raw
+                    .get("class_path")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(agent_codename);
+            }
+        }
+    }
+
+    fn finalize(&self, match_id: &str) -> FinalizedRoster {
+        let mut candidates = self
+            .player_states
+            .iter()
+            .filter_map(|(state_guid, draft)| {
+                Some((*state_guid, draft.slot?, draft.subject.as_ref()?, draft))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(|(_, slot, _, _)| *slot);
+        candidates.truncate(10);
+
+        let mut finalized = FinalizedRoster::default();
+        for (index, (state_guid, slot, subject, draft)) in candidates.into_iter().enumerate() {
+            let team = if index < 5 { "team_a" } else { "team_b" };
+            let id = format!("{match_id}:player:{subject}");
+            finalized.players.push(ReplayPlayerIdentity {
+                id: id.clone(),
+                stable_player_id: subject.clone(),
+                team: team.to_owned(),
+                agent_name: draft.agent_name.clone(),
+                player_slot: slot,
+            });
+            for pawn_guid in &draft.pawn_guids {
+                finalized.pawn_to_player.insert(*pawn_guid, id.clone());
+            }
+            for (pawn_guid, mapped_state_guid) in &self.pawn_to_state {
+                if *mapped_state_guid == state_guid {
+                    finalized.pawn_to_player.insert(*pawn_guid, id.clone());
+                }
+            }
+        }
+        finalized
+    }
+}
+
+fn agent_codename(class_path: &str) -> Option<String> {
+    let class_name = class_path.rsplit('/').next()?.strip_suffix("_PC")?;
+    (!class_name.is_empty()).then(|| class_name.to_owned())
+}
+
 struct PersistedEvent {
     timestamp_ms: i64,
     event_type: String,
@@ -899,19 +1061,22 @@ async fn flush_movement(
 async fn insert_replay_players(
     transaction: &mut Transaction<'_, Sqlite>,
     match_id: &str,
-    player_ids: BTreeSet<String>,
+    players: Vec<ReplayPlayerIdentity>,
 ) -> Result<(), DatabaseError> {
-    if player_ids.is_empty() {
+    if players.is_empty() {
         return Ok(());
     }
     let mut query = QueryBuilder::<Sqlite>::new(
-        "INSERT INTO players (id, match_id, stable_player_id, display_name) ",
+        "INSERT INTO players (id, match_id, stable_player_id, display_name, team, agent_name, player_slot) ",
     );
-    query.push_values(player_ids, |mut row, player_id| {
-        row.push_bind(player_id.clone())
+    query.push_values(players, |mut row, player| {
+        row.push_bind(player.id)
             .push_bind(match_id)
-            .push_bind(player_id)
-            .push_bind(Option::<String>::None);
+            .push_bind(player.stable_player_id)
+            .push_bind(Option::<String>::None)
+            .push_bind(player.team)
+            .push_bind(player.agent_name)
+            .push_bind(player.player_slot);
     });
     query.build().execute(&mut **transaction).await?;
     Ok(())
@@ -952,7 +1117,70 @@ mod tests {
         ParsedBundle, ParsedReplay, ParsedReplaySummary, ReplayCapabilities, ReplayMetadata,
     };
 
-    use super::{AgentTokenUsage, Database, UserRecord};
+    use super::{AgentTokenUsage, Database, ReplayRoster, UserRecord};
+
+    #[test]
+    fn replay_roster_collapses_respawns_into_two_five_player_teams() {
+        let mut roster = ReplayRoster::default();
+        for index in 0_u64..10 {
+            let state_guid = 200 + index;
+            let first_pawn = 1_000 + index;
+            roster.observe(&valcoach_domain::GenericEvent {
+                event_type: "export_group_received".to_owned(),
+                timestamp_ms: 8,
+                actor_net_guid: Some(state_guid),
+                raw: serde_json::json!({
+                    "export_group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+                    "payload": {
+                        "PlayerId": 256 + index,
+                        "Subject": format!("subject-{index}"),
+                        "PossessedCharacter": first_pawn
+                    }
+                }),
+            });
+            roster.observe(&valcoach_domain::GenericEvent {
+                event_type: "export_group_received".to_owned(),
+                timestamp_ms: 9,
+                actor_net_guid: Some(first_pawn),
+                raw: serde_json::json!({
+                    "export_group_path": "/Game/Characters/Sprinter/Sprinter_PC.Sprinter_PC_C",
+                    "class_path": "/Game/Characters/Sprinter/Sprinter_PC",
+                    "payload": { "PlayerState": state_guid }
+                }),
+            });
+            let respawn = 2_000 + index;
+            roster.observe(&valcoach_domain::GenericEvent {
+                event_type: "export_group_received".to_owned(),
+                timestamp_ms: 10,
+                actor_net_guid: Some(state_guid),
+                raw: serde_json::json!({
+                    "export_group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+                    "payload": { "PossessedCharacter": respawn }
+                }),
+            });
+        }
+
+        let finalized = roster.finalize("match-1");
+        assert_eq!(finalized.players.len(), 10);
+        assert_eq!(
+            finalized
+                .players
+                .iter()
+                .filter(|player| player.team == "team_a")
+                .count(),
+            5
+        );
+        assert_eq!(
+            finalized
+                .players
+                .iter()
+                .filter(|player| player.team == "team_b")
+                .count(),
+            5
+        );
+        assert_eq!(finalized.pawn_to_player.len(), 20);
+        assert_eq!(finalized.players[0].agent_name.as_deref(), Some("Sprinter"));
+    }
 
     #[tokio::test]
     async fn migrations_and_match_summary_persistence_work() {

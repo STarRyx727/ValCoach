@@ -1,4 +1,4 @@
-use std::{env, fmt, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, fmt, sync::Arc, time::Duration};
 
 use axum::{
     Json,
@@ -8,6 +8,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 use valcoach_db::{
     AgentMessageRecord, AgentTokenUsage, AgentUsageSummary, Database, DatabaseError,
@@ -28,7 +29,8 @@ Answer in the language used by the player. Be concise and actionable."#;
 #[derive(Clone)]
 pub struct AgentService {
     database: Database,
-    provider: Option<Arc<LlmProvider>>,
+    default_provider: Option<Arc<LlmProvider>>,
+    user_providers: Arc<RwLock<HashMap<String, Arc<LlmProvider>>>>,
 }
 
 impl fmt::Debug for AgentService {
@@ -36,7 +38,7 @@ impl fmt::Debug for AgentService {
         formatter
             .debug_struct("AgentService")
             .field("database", &self.database)
-            .field("configured", &self.provider.is_some())
+            .field("environment_configured", &self.default_provider.is_some())
             .finish()
     }
 }
@@ -46,6 +48,19 @@ pub struct AgentStatus {
     pub configured: bool,
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub source: Option<String>,
+    pub api_key_in_memory: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentSettingsRequest {
+    pub provider: String,
+    pub model: String,
+    pub api_key: String,
+    pub base_url: Option<String>,
+    pub max_output_tokens: Option<u32>,
+    pub input_usd_per_million: Option<f64>,
+    pub output_usd_per_million: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,55 +81,11 @@ pub struct CoachResponse {
 
 impl AgentService {
     pub fn from_env(database: Database) -> Result<Self, AgentError> {
-        let Some(provider_name) = optional_env("VALCOACH_LLM_PROVIDER") else {
-            return Ok(Self {
-                database,
-                provider: None,
-            });
-        };
-        let kind = ProviderKind::parse(&provider_name)?;
-        let model = required_env("VALCOACH_LLM_MODEL")?;
-        let api_key = optional_env("VALCOACH_LLM_API_KEY")
-            .or_else(|| optional_env(kind.default_key_variable()))
-            .ok_or_else(|| {
-                AgentError::Configuration(format!(
-                    "{} or VALCOACH_LLM_API_KEY is required",
-                    kind.default_key_variable()
-                ))
-            })?;
-        let base_url = optional_env("VALCOACH_LLM_BASE_URL")
-            .unwrap_or_else(|| kind.default_base_url().to_owned());
-        if !base_url.starts_with("https://") && !base_url.starts_with("http://127.0.0.1") {
-            return Err(AgentError::Configuration(
-                "VALCOACH_LLM_BASE_URL must use HTTPS (or loopback HTTP for local testing)"
-                    .to_owned(),
-            ));
-        }
-        let max_output_tokens = optional_env("VALCOACH_LLM_MAX_OUTPUT_TOKENS")
-            .map(|value| parse_positive_u32("VALCOACH_LLM_MAX_OUTPUT_TOKENS", &value))
-            .transpose()?
-            .unwrap_or(800);
-        let input_price = optional_env("VALCOACH_LLM_INPUT_USD_PER_MILLION")
-            .map(|value| parse_non_negative_f64("VALCOACH_LLM_INPUT_USD_PER_MILLION", &value))
-            .transpose()?;
-        let output_price = optional_env("VALCOACH_LLM_OUTPUT_USD_PER_MILLION")
-            .map(|value| parse_non_negative_f64("VALCOACH_LLM_OUTPUT_USD_PER_MILLION", &value))
-            .transpose()?;
-        let client = Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()?;
+        let default_provider = provider_from_env()?.map(Arc::new);
         Ok(Self {
             database,
-            provider: Some(Arc::new(LlmProvider {
-                client,
-                kind,
-                model,
-                base_url: base_url.trim_end_matches('/').to_owned(),
-                api_key,
-                max_output_tokens,
-                input_price,
-                output_price,
-            })),
+            default_provider,
+            user_providers: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -122,22 +93,57 @@ impl AgentService {
     pub fn disabled(database: Database) -> Self {
         Self {
             database,
-            provider: None,
+            default_provider: None,
+            user_providers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub fn status(&self) -> AgentStatus {
-        AgentStatus {
-            configured: self.provider.is_some(),
-            provider: self
-                .provider
+    async fn provider_for(&self, user_id: &str) -> Option<(Arc<LlmProvider>, &'static str)> {
+        if let Some(provider) = self.user_providers.read().await.get(user_id).cloned() {
+            Some((provider, "web"))
+        } else {
+            self.default_provider
                 .as_ref()
-                .map(|provider| provider.kind.name().to_owned()),
-            model: self
-                .provider
-                .as_ref()
-                .map(|provider| provider.model.clone()),
+                .cloned()
+                .map(|provider| (provider, "environment"))
         }
+    }
+
+    pub async fn status_for(&self, user_id: &str) -> AgentStatus {
+        let Some((provider, source)) = self.provider_for(user_id).await else {
+            return AgentStatus {
+                configured: false,
+                provider: None,
+                model: None,
+                source: None,
+                api_key_in_memory: false,
+            };
+        };
+        AgentStatus {
+            configured: true,
+            provider: Some(provider.kind.name().to_owned()),
+            model: Some(provider.model.clone()),
+            source: Some(source.to_owned()),
+            api_key_in_memory: source == "web",
+        }
+    }
+
+    pub async fn configure_for(
+        &self,
+        user_id: &str,
+        settings: AgentSettingsRequest,
+    ) -> Result<AgentStatus, AgentError> {
+        let provider = Arc::new(LlmProvider::from_settings(settings)?);
+        self.user_providers
+            .write()
+            .await
+            .insert(user_id.to_owned(), provider);
+        Ok(self.status_for(user_id).await)
+    }
+
+    pub async fn clear_for(&self, user_id: &str) -> AgentStatus {
+        self.user_providers.write().await.remove(user_id);
+        self.status_for(user_id).await
     }
 
     pub async fn coach(
@@ -150,7 +156,10 @@ impl AgentService {
         if question.is_empty() || question.len() > MAX_QUESTION_BYTES {
             return Err(AgentError::InvalidQuestion);
         }
-        let provider = self.provider.as_ref().ok_or(AgentError::Disabled)?;
+        let (provider, _) = self
+            .provider_for(user_id)
+            .await
+            .ok_or(AgentError::Disabled)?;
         let replay = self
             .database
             .find_match_for_user(user_id, match_id)
@@ -251,6 +260,52 @@ struct LlmProvider {
 }
 
 impl LlmProvider {
+    fn from_settings(settings: AgentSettingsRequest) -> Result<Self, AgentError> {
+        let kind = ProviderKind::parse(&settings.provider)?;
+        let model = settings.model.trim().to_owned();
+        let api_key = settings.api_key.trim().to_owned();
+        if model.is_empty() || model.len() > 200 {
+            return Err(AgentError::Configuration(
+                "model must contain 1-200 characters".to_owned(),
+            ));
+        }
+        if api_key.is_empty() || api_key.len() > 8_192 {
+            return Err(AgentError::Configuration(
+                "API key must contain 1-8192 characters".to_owned(),
+            ));
+        }
+        let base_url = settings
+            .base_url
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| kind.default_base_url().to_owned());
+        let max_output_tokens = settings.max_output_tokens.unwrap_or(800);
+        if max_output_tokens == 0 || max_output_tokens > 32_768 {
+            return Err(AgentError::Configuration(
+                "max output tokens must be between 1 and 32768".to_owned(),
+            ));
+        }
+        validate_base_url(&base_url)?;
+        validate_optional_price("input_usd_per_million", settings.input_usd_per_million)?;
+        validate_optional_price("output_usd_per_million", settings.output_usd_per_million)?;
+        if settings.input_usd_per_million.is_some() != settings.output_usd_per_million.is_some() {
+            return Err(AgentError::Configuration(
+                "input and output prices must be provided together".to_owned(),
+            ));
+        }
+        Ok(Self {
+            client: Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()?,
+            kind,
+            model,
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            api_key,
+            max_output_tokens,
+            input_price: settings.input_usd_per_million,
+            output_price: settings.output_usd_per_million,
+        })
+    }
+
     async fn complete(&self, instructions: &str, input: &str) -> Result<ProviderReply, AgentError> {
         let mut reply = match self.kind {
             ProviderKind::OpenAi => self.complete_openai(instructions, input).await?,
@@ -345,6 +400,70 @@ impl LlmProvider {
         }
         Ok(serde_json::from_slice(&bytes)?)
     }
+}
+
+fn provider_from_env() -> Result<Option<LlmProvider>, AgentError> {
+    let Some(provider_name) = optional_env("VALCOACH_LLM_PROVIDER") else {
+        return Ok(None);
+    };
+    let kind = ProviderKind::parse(&provider_name)?;
+    let model = required_env("VALCOACH_LLM_MODEL")?;
+    let api_key = optional_env("VALCOACH_LLM_API_KEY")
+        .or_else(|| optional_env(kind.default_key_variable()))
+        .ok_or_else(|| {
+            AgentError::Configuration(format!(
+                "{} or VALCOACH_LLM_API_KEY is required",
+                kind.default_key_variable()
+            ))
+        })?;
+    let base_url =
+        optional_env("VALCOACH_LLM_BASE_URL").unwrap_or_else(|| kind.default_base_url().to_owned());
+    let max_output_tokens = optional_env("VALCOACH_LLM_MAX_OUTPUT_TOKENS")
+        .map(|value| parse_positive_u32("VALCOACH_LLM_MAX_OUTPUT_TOKENS", &value))
+        .transpose()?
+        .unwrap_or(800);
+    let input_price = optional_env("VALCOACH_LLM_INPUT_USD_PER_MILLION")
+        .map(|value| parse_non_negative_f64("VALCOACH_LLM_INPUT_USD_PER_MILLION", &value))
+        .transpose()?;
+    let output_price = optional_env("VALCOACH_LLM_OUTPUT_USD_PER_MILLION")
+        .map(|value| parse_non_negative_f64("VALCOACH_LLM_OUTPUT_USD_PER_MILLION", &value))
+        .transpose()?;
+    LlmProvider::from_settings(AgentSettingsRequest {
+        provider: kind.name().to_owned(),
+        model,
+        api_key,
+        base_url: Some(base_url),
+        max_output_tokens: Some(max_output_tokens),
+        input_usd_per_million: input_price,
+        output_usd_per_million: output_price,
+    })
+    .map(Some)
+}
+
+fn validate_base_url(base_url: &str) -> Result<(), AgentError> {
+    if base_url.is_empty() {
+        return Err(AgentError::Configuration(
+            "base URL is required for an OpenAI-compatible provider".to_owned(),
+        ));
+    }
+    if base_url.len() > 2_048 {
+        return Err(AgentError::Configuration("base URL is too long".to_owned()));
+    }
+    if !base_url.starts_with("https://") && !base_url.starts_with("http://127.0.0.1") {
+        return Err(AgentError::Configuration(
+            "base URL must use HTTPS (or loopback HTTP for local testing)".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_optional_price(name: &str, price: Option<f64>) -> Result<(), AgentError> {
+    if price.is_some_and(|value| !value.is_finite() || value < 0.0) {
+        return Err(AgentError::Configuration(format!(
+            "{name} must be a non-negative number"
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -570,8 +689,34 @@ pub enum AgentError {
     Serialization(#[from] serde_json::Error),
 }
 
-pub async fn status(State(state): State<AppState>) -> Json<AgentStatus> {
-    Json(state.agent.status())
+pub async fn status(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+) -> Result<Json<AgentStatus>, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    Ok(Json(state.agent.status_for(&user_id).await))
+}
+
+pub async fn configure_settings(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Json(settings): Json<AgentSettingsRequest>,
+) -> Result<Json<AgentStatus>, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    state
+        .agent
+        .configure_for(&user_id, settings)
+        .await
+        .map(Json)
+        .map_err(agent_api_error)
+}
+
+pub async fn clear_settings(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+) -> Result<Json<AgentStatus>, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    Ok(Json(state.agent.clear_for(&user_id).await))
 }
 
 pub async fn coach_match(
@@ -635,8 +780,6 @@ fn agent_api_error(error: AgentError) -> AuthApiError {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
-
     use axum::{Json, Router, routing::post};
     use serde_json::json;
     use valcoach_db::{Database, UserRecord};
@@ -646,7 +789,7 @@ mod tests {
     };
 
     use super::{
-        AgentService, AgentTokenUsage, LlmProvider, ProviderKind, estimate_cost,
+        AgentService, AgentSettingsRequest, AgentTokenUsage, ProviderKind, estimate_cost,
         parse_anthropic_response, parse_chat_completion, parse_openai_response,
     };
 
@@ -748,22 +891,24 @@ mod tests {
             )
             .await
             .expect("match");
-        let service = AgentService {
-            database: database.clone(),
-            provider: Some(Arc::new(LlmProvider {
-                client: reqwest::Client::builder()
-                    .timeout(Duration::from_secs(5))
-                    .build()
-                    .expect("client"),
-                kind: ProviderKind::OpenAi,
-                model: "mock-model".to_owned(),
-                base_url: format!("http://{address}"),
-                api_key: "test-key".to_owned(),
-                max_output_tokens: 100,
-                input_price: Some(1.0),
-                output_price: Some(2.0),
-            })),
-        };
+        let service = AgentService::disabled(database.clone());
+        let status = service
+            .configure_for(
+                "user-1",
+                AgentSettingsRequest {
+                    provider: "openai".to_owned(),
+                    model: "mock-model".to_owned(),
+                    api_key: "test-key".to_owned(),
+                    base_url: Some(format!("http://{address}")),
+                    max_output_tokens: Some(100),
+                    input_usd_per_million: Some(1.0),
+                    output_usd_per_million: Some(2.0),
+                },
+            )
+            .await
+            .expect("web settings");
+        assert!(status.configured);
+        assert_eq!(status.source.as_deref(), Some("web"));
         let answer = service
             .coach("user-1", "match-1", "How should I improve?")
             .await

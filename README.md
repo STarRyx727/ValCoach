@@ -18,11 +18,14 @@ metrics to a local web UI.
   payload status and no silent Global fallback.
 - Raw movement path/velocity summary with timestamped evidence; unsupported fields are not
   represented as zero.
-- Match browsing, observed-player selection, and local account binding.
+- Match browsing, exact 5v5 team rosters derived from stable player-state identities, agent-based
+  player selection, and local account binding. Re-spawned character actors are collapsed into the
+  same player instead of appearing as duplicate GUIDs.
 - Evidence-grounded coaching with OpenAI Responses, Claude Messages, DeepSeek, or another
   OpenAI-compatible API; conversations and input/output/total token usage are stored locally.
-- React/Vite local UI with Bundle diagnostics, coaching history, evidence, limitations and token
-  totals.
+- React/Vite local UI with in-browser model settings, team-separated roster selection, coaching
+  history, collapsible evidence/limitations, and token totals. API keys entered in the browser are
+  held only in backend process memory and are never returned to the page.
 
 China-region ReplayData remains unsupported because its payload transform differs from the Global
 release format; its metadata and server timeline are still exported. See
@@ -44,9 +47,10 @@ builds it, and runs its tests. Set `VALCOACH_PARSER_DIR` and `VALCOACH_DOTNET_PA
 or dotnet executable is elsewhere. Replay files, SQLite databases, parser output, API keys, and
 Node build artifacts are ignored by Git and are never uploaded by this project.
 
-The Agent is optional: copy the relevant values from `.env.example` into your environment before
-starting the server. Model selection is explicit and cost estimates are only computed when current
-per-million-token prices are supplied. See `docs/AGENT_PROVIDERS.md`.
+The Agent is optional. The easiest setup is **模型设置** in the web UI; environment variables from
+`.env.example` remain available as a server-wide fallback. Model selection is explicit and cost
+estimates are only computed when current per-million-token prices are supplied. See
+`docs/AGENT_PROVIDERS.md`.
 
 ## Verification
 
