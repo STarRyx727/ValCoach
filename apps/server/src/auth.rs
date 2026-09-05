@@ -202,6 +202,20 @@ impl AuthApiError {
         }
     }
 
+    pub(crate) fn bad_gateway(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn gateway_timeout(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::GATEWAY_TIMEOUT,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn session(error: impl std::fmt::Display) -> Self {
         tracing::error!(error = %error, "session operation failed");
         Self::internal("session operation failed")

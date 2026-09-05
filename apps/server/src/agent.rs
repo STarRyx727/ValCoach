@@ -20,6 +20,7 @@ use crate::{
 };
 
 const MAX_QUESTION_BYTES: usize = 4_000;
+const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 4_096;
 const SYSTEM_PROMPT: &str = r#"You are ValCoach, an evidence-grounded VALORANT replay coach.
 Use only facts in <replay_context>; never invent missing replay facts, player identity, units, rounds, kills, or causes.
 Check the capability map before making each factual claim. If a capability is partial or unsupported, state the limitation.
@@ -278,13 +279,16 @@ impl LlmProvider {
             .base_url
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| kind.default_base_url().to_owned());
-        let max_output_tokens = settings.max_output_tokens.unwrap_or(800);
+        let max_output_tokens = settings
+            .max_output_tokens
+            .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS);
         if max_output_tokens == 0 || max_output_tokens > 32_768 {
             return Err(AgentError::Configuration(
                 "max output tokens must be between 1 and 32768".to_owned(),
             ));
         }
         validate_base_url(&base_url)?;
+        let base_url = normalize_base_url(kind, &base_url);
         validate_optional_price("input_usd_per_million", settings.input_usd_per_million)?;
         validate_optional_price("output_usd_per_million", settings.output_usd_per_million)?;
         if settings.input_usd_per_million.is_some() != settings.output_usd_per_million.is_some() {
@@ -298,7 +302,7 @@ impl LlmProvider {
                 .build()?,
             kind,
             model,
-            base_url: base_url.trim_end_matches('/').to_owned(),
+            base_url,
             api_key,
             max_output_tokens,
             input_price: settings.input_usd_per_million,
@@ -334,7 +338,8 @@ impl LlmProvider {
                         "instructions": instructions,
                         "input": input,
                         "max_output_tokens": self.max_output_tokens,
-                        "store": false
+                        "store": false,
+                        "truncation": "auto"
                     })),
             )
             .await?;
@@ -390,15 +395,24 @@ impl LlmProvider {
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<Value, AgentError> {
         let response = request.send().await?;
         let status = response.status();
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .or_else(|| response.headers().get("request-id"))
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let bytes = response.bytes().await?;
         if !status.is_success() {
-            let detail = String::from_utf8_lossy(&bytes);
-            return Err(AgentError::Provider(format!(
-                "provider returned HTTP {status}: {}",
-                detail.chars().take(500).collect::<String>()
-            )));
+            let detail = provider_error_detail(&bytes).replace(&self.api_key, "[redacted]");
+            return Err(AgentError::Provider {
+                status: status.as_u16(),
+                detail,
+                request_id,
+            });
         }
-        Ok(serde_json::from_slice(&bytes)?)
+        serde_json::from_slice(&bytes).map_err(|error| {
+            AgentError::InvalidResponse(format!("response was not valid JSON: {error}"))
+        })
     }
 }
 
@@ -421,7 +435,7 @@ fn provider_from_env() -> Result<Option<LlmProvider>, AgentError> {
     let max_output_tokens = optional_env("VALCOACH_LLM_MAX_OUTPUT_TOKENS")
         .map(|value| parse_positive_u32("VALCOACH_LLM_MAX_OUTPUT_TOKENS", &value))
         .transpose()?
-        .unwrap_or(800);
+        .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS);
     let input_price = optional_env("VALCOACH_LLM_INPUT_USD_PER_MILLION")
         .map(|value| parse_non_negative_f64("VALCOACH_LLM_INPUT_USD_PER_MILLION", &value))
         .transpose()?;
@@ -455,6 +469,33 @@ fn validate_base_url(base_url: &str) -> Result<(), AgentError> {
         ));
     }
     Ok(())
+}
+
+fn normalize_base_url(kind: ProviderKind, base_url: &str) -> String {
+    let base_url = base_url.trim().trim_end_matches('/');
+    let endpoint = match kind {
+        ProviderKind::OpenAi => "/responses",
+        ProviderKind::Anthropic => "/messages",
+        ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => "/chat/completions",
+    };
+    base_url
+        .strip_suffix(endpoint)
+        .unwrap_or(base_url)
+        .to_owned()
+}
+
+fn provider_error_detail(bytes: &[u8]) -> String {
+    let parsed = serde_json::from_slice::<Value>(bytes).ok();
+    let detail = parsed
+        .as_ref()
+        .and_then(|value| {
+            value
+                .pointer("/error/message")
+                .or_else(|| value.get("message"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_else(|| std::str::from_utf8(bytes).unwrap_or("unreadable response body"));
+    detail.chars().take(500).collect()
 }
 
 fn validate_optional_price(name: &str, price: Option<f64>) -> Result<(), AgentError> {
@@ -524,7 +565,7 @@ struct ProviderReply {
 }
 
 fn parse_openai_response(value: &Value) -> Result<ProviderReply, AgentError> {
-    let text = value
+    let nested_text = value
         .get("output")
         .and_then(Value::as_array)
         .into_iter()
@@ -538,6 +579,29 @@ fn parse_openai_response(value: &Value) -> Result<ProviderReply, AgentError> {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let text = value
+        .get("output_text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or(&nested_text)
+        .to_owned();
+    if text.trim().is_empty() && value.get("status").and_then(Value::as_str) == Some("incomplete") {
+        let reason = value
+            .pointer("/incomplete_details/reason")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown reason");
+        return Err(AgentError::Incomplete(reason.to_owned()));
+    }
+    if text.trim().is_empty()
+        && value
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .is_some()
+    {
+        return Err(AgentError::InvalidResponse(
+            "provider reported a failed response".to_owned(),
+        ));
+    }
     let usage = value.get("usage").unwrap_or(&Value::Null);
     provider_reply(
         value,
@@ -561,6 +625,11 @@ fn parse_anthropic_response(value: &Value) -> Result<ProviderReply, AgentError> 
         })
         .collect::<Vec<_>>()
         .join("\n");
+    if text.trim().is_empty()
+        && value.get("stop_reason").and_then(Value::as_str) == Some("max_tokens")
+    {
+        return Err(AgentError::Incomplete("max_tokens".to_owned()));
+    }
     let usage = value.get("usage").unwrap_or(&Value::Null);
     let input = token(usage, "input_tokens")
         .saturating_add(token(usage, "cache_creation_input_tokens"))
@@ -570,11 +639,28 @@ fn parse_anthropic_response(value: &Value) -> Result<ProviderReply, AgentError> 
 }
 
 fn parse_chat_completion(value: &Value) -> Result<ProviderReply, AgentError> {
-    let text = value
+    let content = value
         .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+        .unwrap_or(&Value::Null);
+    let text = if let Some(text) = content.as_str() {
+        text.to_owned()
+    } else {
+        content
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    if text.trim().is_empty()
+        && value
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            == Some("length")
+    {
+        return Err(AgentError::Incomplete("max_tokens".to_owned()));
+    }
     let usage = value.get("usage").unwrap_or(&Value::Null);
     provider_reply(
         value,
@@ -593,7 +679,7 @@ fn provider_reply(
     total_tokens: u64,
 ) -> Result<ProviderReply, AgentError> {
     if text.trim().is_empty() {
-        return Err(AgentError::Provider(
+        return Err(AgentError::InvalidResponse(
             "provider response contained no assistant text".to_owned(),
         ));
     }
@@ -681,8 +767,16 @@ pub enum AgentError {
     Configuration(String),
     #[error("LLM HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("LLM provider request failed: {0}")]
-    Provider(String),
+    #[error("LLM provider returned HTTP {status}: {detail} (request_id: {request_id:?})")]
+    Provider {
+        status: u16,
+        detail: String,
+        request_id: Option<String>,
+    },
+    #[error("LLM provider returned an incomplete response: {0}")]
+    Incomplete(String),
+    #[error("LLM provider returned an invalid response: {0}")]
+    InvalidResponse(String),
     #[error(transparent)]
     Database(#[from] DatabaseError),
     #[error("failed to serialize Agent context: {0}")]
@@ -765,22 +859,77 @@ pub async fn usage(
 
 fn agent_api_error(error: AgentError) -> AuthApiError {
     match error {
-        AgentError::Disabled | AgentError::InvalidQuestion => {
+        AgentError::Disabled | AgentError::InvalidQuestion | AgentError::Configuration(_) => {
             AuthApiError::bad_request(error.to_string())
         }
         AgentError::MatchNotFound | AgentError::Database(DatabaseError::MatchNotFound) => {
             AuthApiError::unauthorized()
         }
+        AgentError::Http(error) => {
+            tracing::error!(error = %error, "replay coaching HTTP request failed");
+            if error.is_timeout() {
+                AuthApiError::gateway_timeout(
+                    "连接模型服务超时，请稍后重试，或检查 Base URL 和网络代理。",
+                )
+            } else if error.is_connect() {
+                AuthApiError::bad_gateway("无法连接模型服务，请检查 Base URL、网络连接和代理设置。")
+            } else {
+                AuthApiError::bad_gateway("模型请求发送失败，请检查模型设置后重试。")
+            }
+        }
+        AgentError::Provider {
+            status,
+            detail,
+            request_id,
+        } => {
+            tracing::error!(status, %detail, ?request_id, "replay coaching provider rejected request");
+            provider_status_error(status)
+        }
+        AgentError::Incomplete(reason) => {
+            tracing::error!(%reason, "replay coaching provider response was incomplete");
+            AuthApiError::bad_gateway(if reason == "max_output_tokens" || reason == "max_tokens" {
+                "模型在生成答案前用完了输出 Token。请在模型设置中将“最大输出 Tokens”提高到 4096 或更高后重试。"
+            } else {
+                "模型没有完成答案，请稍后重试。"
+            })
+        }
+        AgentError::InvalidResponse(detail) => {
+            tracing::error!(%detail, "replay coaching provider returned invalid response");
+            AuthApiError::bad_gateway(
+                "模型服务返回了无法识别的响应。请确认服务商类型与 Base URL 相匹配。",
+            )
+        }
         other => {
             tracing::error!(error = %other, "replay coaching request failed");
-            AuthApiError::internal("replay coaching request failed")
+            AuthApiError::internal("复盘结果保存失败，请重试。")
         }
+    }
+}
+
+fn provider_status_error(status: u16) -> AuthApiError {
+    let message = match status {
+        400 | 422 => "模型服务拒绝了请求。请检查模型 ID、Base URL 和最大输出 Tokens。",
+        401 => "API Key 验证失败，请在模型设置中重新填写正确的 Key。",
+        402 => "模型账户余额不足，请充值或更换可用的 API Key。",
+        403 => "当前 API Key 没有访问该模型的权限，请更换模型或 Key。",
+        404 => "没有找到模型接口。请检查模型 ID；Base URL 应填写到 /v1，不要填写完整请求地址。",
+        408 => "模型服务响应超时，请稍后重试。",
+        413 => "发送给模型的复盘上下文过长，请换用上下文窗口更大的模型。",
+        429 => "模型服务已限流或账户额度不足，请稍后重试并检查 API 余额。",
+        500..=599 => "模型服务暂时不可用，请稍后重试。",
+        _ => "模型服务拒绝了请求，请检查模型设置后重试。",
+    };
+    if status == 408 {
+        AuthApiError::gateway_timeout(message)
+    } else {
+        AuthApiError::bad_gateway(message)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use axum::{Json, Router, routing::post};
+    use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::post};
+    use http_body_util::BodyExt;
     use serde_json::json;
     use valcoach_db::{Database, UserRecord};
     use valcoach_domain::{
@@ -789,8 +938,9 @@ mod tests {
     };
 
     use super::{
-        AgentService, AgentSettingsRequest, AgentTokenUsage, ProviderKind, estimate_cost,
-        parse_anthropic_response, parse_chat_completion, parse_openai_response,
+        AgentError, AgentService, AgentSettingsRequest, AgentTokenUsage, LlmProvider, ProviderKind,
+        agent_api_error, estimate_cost, normalize_base_url, parse_anthropic_response,
+        parse_chat_completion, parse_openai_response,
     };
 
     #[test]
@@ -803,6 +953,26 @@ mod tests {
         .expect("OpenAI response");
         assert_eq!(openai.text, "OpenAI");
         assert_eq!(openai.usage.total_tokens, 14);
+
+        let openai_top_level = parse_openai_response(&json!({
+            "id":"resp-2",
+            "status":"completed",
+            "output_text":"Top-level OpenAI text",
+            "usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}
+        }))
+        .expect("OpenAI top-level response");
+        assert_eq!(openai_top_level.text, "Top-level OpenAI text");
+
+        assert!(
+            parse_openai_response(&json!({
+                "id":"resp-3",
+                "status":"incomplete",
+                "incomplete_details":{"reason":"max_output_tokens"},
+                "output":[],
+                "usage":{"input_tokens":10,"output_tokens":800,"total_tokens":810}
+            }))
+            .is_err()
+        );
 
         let anthropic = parse_anthropic_response(&json!({
             "id":"msg-1",
@@ -828,6 +998,17 @@ mod tests {
             ProviderKind::parse("claude").expect("alias"),
             ProviderKind::Anthropic
         );
+        assert_eq!(
+            normalize_base_url(ProviderKind::OpenAi, "https://api.openai.com/v1/responses/"),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            normalize_base_url(
+                ProviderKind::OpenAiCompatible,
+                "https://example.com/v1/chat/completions"
+            ),
+            "https://example.com/v1"
+        );
         let usage = AgentTokenUsage {
             input_tokens: 1_000,
             output_tokens: 200,
@@ -844,6 +1025,7 @@ mod tests {
             "/responses",
             post(|Json(body): Json<serde_json::Value>| async move {
                 assert_eq!(body["store"], false);
+                assert_eq!(body["truncation"], "auto");
                 assert!(body["input"].as_str().is_some_and(|text| text.contains("match-1")));
                 Json(json!({
                     "id":"resp-mock",
@@ -922,5 +1104,66 @@ mod tests {
             .expect("history");
         assert_eq!(history.len(), 2);
         assert_eq!(history[1].usage.total_tokens, 27);
+    }
+
+    #[tokio::test]
+    async fn provider_http_error_is_classified_and_redacts_the_api_key() {
+        let mock = Router::new().route(
+            "/responses",
+            post(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error":{"message":"invalid credential test-key"}})),
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock listener");
+        let address = listener.local_addr().expect("mock address");
+        tokio::spawn(async move { axum::serve(listener, mock).await.expect("mock server") });
+
+        let provider = LlmProvider::from_settings(AgentSettingsRequest {
+            provider: "openai".to_owned(),
+            model: "mock-model".to_owned(),
+            api_key: "test-key".to_owned(),
+            base_url: Some(format!("http://{address}/responses")),
+            max_output_tokens: None,
+            input_usd_per_million: None,
+            output_usd_per_million: None,
+        })
+        .expect("provider settings");
+        let error = provider
+            .complete("system", "input")
+            .await
+            .expect_err("provider must reject request");
+        match error {
+            AgentError::Provider { status, detail, .. } => {
+                assert_eq!(status, 401);
+                assert_eq!(detail, "invalid credential [redacted]");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_rejection_returns_an_actionable_safe_api_error() {
+        let response = agent_api_error(AgentError::Provider {
+            status: 401,
+            detail: "private upstream detail".to_owned(),
+            request_id: Some("request-1".to_owned()),
+        })
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("error response body")
+            .to_bytes();
+        let body = std::str::from_utf8(&body).expect("UTF-8 body");
+        assert!(body.contains("API Key"));
+        assert!(!body.contains("private upstream detail"));
+        assert!(!body.contains("request-1"));
     }
 }
