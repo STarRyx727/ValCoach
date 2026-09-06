@@ -169,10 +169,10 @@ pub async fn get_compact_replay(
 }
 
 pub async fn list_maps(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     _session: tower_sessions::Session,
 ) -> Result<Json<Vec<serde_json::Value>>, AuthApiError> {
-    let maps_dir = state.jobs.data_directory.join("maps");
+    let maps_dir = std::path::Path::new("data").join("maps");
     let mut maps = Vec::new();
     if let Ok(mut entries) = tokio::fs::read_dir(&maps_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {

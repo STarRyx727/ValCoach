@@ -17,6 +17,8 @@ use tokio_util::sync::CancellationToken;
 use valcoach_domain::{
     MovementSample, ParsedReplay, ParsedReplaySummary, ReplayCapabilities, ReplayMetadata, Vector3,
 };
+use valcoach_domain::agent_display_name as domain_agent_display_name;
+use valcoach_domain::map_display_name as domain_map_display_name;
 use valcoach_replay_adapter::{NormalizedRecord, ParsedBundleSource, ReplaySourceError};
 
 use semantic::SemanticBuilder;
@@ -939,7 +941,7 @@ impl Database {
         .await?
         .into_iter()
         .map(|row| {
-            json!({"id":row.0,"subject":row.1,"team":row.2,"agent":row.3,"slot":row.4})
+            json!({"id":row.0,"subject":row.1,"team":row.2,"agent":row.3.as_deref().map(domain_agent_display_name),"agent_raw":row.3,"slot":row.4})
         })
         .collect::<Vec<_>>();
 
@@ -1134,7 +1136,7 @@ impl Database {
         Ok(SemanticContext {
             context: json!({
                 "question_scope": { "round": requested_round, "area": requested_area, "side": requested_side },
-                "player": { "id": player_id, "subject": player.0, "team": player.1, "agent": player.2,
+                "player": { "id": player_id, "subject": player.0, "team": player.1, "agent": player.2.as_deref().map(domain_agent_display_name),
                     "character_net_guids": serde_json::from_str::<Value>(&player.3).unwrap_or_else(|_| json!([])) },
                 "players": all_players,
                 "all_rounds": rounds,
@@ -1313,7 +1315,7 @@ impl Database {
                 let distance =
                     ((row.2 - x).powi(2) + (row.3 - y).powi(2) + (row.4 - z).powi(2)).sqrt();
                 json!({"player_id":row.0,"time_ms":row.1,"position":{"x":row.2,"y":row.3,"z":row.4},
-                    "distance_units":distance,"team":row.5,"agent":row.6,
+                    "distance_units":distance,"team":row.5,"agent":row.6.as_deref().map(domain_agent_display_name),
                     "evidence":{"match_id":match_id,"timestamp_ms":row.1,"player_id":row.0,
                         "evidence_type":"nearby_movement","source_file":"movement.ndjson",
                         "source_event_type":"movement_sample"}})
@@ -1738,7 +1740,7 @@ impl Database {
 
         let compact = json!({
             "match_id": match_id,
-            "map": replay.metadata.map.as_deref().map(valcoach_domain::map_display_name),
+            "map": replay.metadata.map.as_deref().map(domain_map_display_name),
             "map_raw": replay.metadata.map,
             "duration_ms": replay.metadata.duration_ms,
             "player_agent": players.iter()
