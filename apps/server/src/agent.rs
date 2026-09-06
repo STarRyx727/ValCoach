@@ -27,6 +27,8 @@ Check the capability map before making each factual claim. If a capability is pa
 Separate observed facts from coaching recommendations. Cite applicable evidence using its exact match_id, player_id, human_time, and evidence_type.
 Always use human_time (format "R8 00:26.1") when referring to timestamps. Never use raw milliseconds.
 When referring to positions, use the "area" field (e.g. "A Site", "A Main") rather than raw coordinates.
+If personal_issues are present in the context, relate current observations to known recurring problems and mention trends.
+When you identify a recurring tactical issue, add a <coaching_issue> block at the end with: issue_key, category, title, description, map, side, area, severity (0-1), confidence (0-1).
 Answer in the language used by the player. Be concise and actionable. Use markdown formatting (headers, bold, lists) for readability."#;
 
 #[derive(Clone)]
@@ -203,6 +205,7 @@ impl AgentService {
             Vec::new()
         };
         let scope = question_scope(question);
+        let personal_issues = self.database.list_player_issues(user_id).await.unwrap_or_default();
         let semantic_context = if let Some(player_id) = selected_player.as_deref() {
             let semantic = self
                 .database
@@ -234,6 +237,7 @@ impl AgentService {
             "selected_player_id": selected_player,
             "deterministic_metrics": selected_metrics,
             "semantic_replay": semantic_context,
+            "personal_issues": personal_issues,
             "limitations": limitations,
         });
         let input = format!(
@@ -243,6 +247,27 @@ impl AgentService {
         );
         let reply = provider.complete(SYSTEM_PROMPT, &input).await?;
         let session_id = Uuid::new_v4().to_string();
+        let (clean_answer, extracted_issues) = extract_coaching_issues(&reply.text);
+        for issue in &extracted_issues {
+            let _ = self
+                .database
+                .upsert_player_issue(
+                    user_id,
+                    &issue.issue_key,
+                    &issue.category,
+                    &issue.title,
+                    issue.description.as_deref(),
+                    issue.map.as_deref(),
+                    issue.side.as_deref(),
+                    issue.area.as_deref(),
+                    issue.severity,
+                    issue.confidence,
+                    Some(match_id),
+                    None,
+                    None,
+                )
+                .await;
+        }
         self.database
             .insert_agent_exchange(
                 user_id,
@@ -251,7 +276,7 @@ impl AgentService {
                 provider.kind.name(),
                 &provider.model,
                 question,
-                &reply.text,
+                &clean_answer,
                 &serde_json::to_string(&evidence)?,
                 &serde_json::to_string(&limitations)?,
                 reply.request_id.as_deref(),
@@ -262,7 +287,7 @@ impl AgentService {
             session_id,
             provider: provider.kind.name().to_owned(),
             model: provider.model.clone(),
-            answer: reply.text,
+            answer: clean_answer,
             evidence,
             limitations,
             usage: reply.usage,
@@ -275,6 +300,42 @@ struct QuestionScope {
     round_no: Option<u32>,
     area: Option<String>,
     side: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CoachingIssue {
+    issue_key: String,
+    category: String,
+    title: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    map: Option<String>,
+    #[serde(default)]
+    side: Option<String>,
+    #[serde(default)]
+    area: Option<String>,
+    #[serde(default)]
+    severity: f64,
+    #[serde(default)]
+    confidence: f64,
+}
+
+fn extract_coaching_issues(text: &str) -> (String, Vec<CoachingIssue>) {
+    let mut issues = Vec::new();
+    let mut clean = text.to_owned();
+    while let Some(start) = clean.find("<coaching_issue>") {
+        if let Some(end) = clean[start..].find("</coaching_issue>").map(|p| start + p) {
+            let block = &clean[start + 16..end];
+            if let Ok(issue) = serde_json::from_str::<CoachingIssue>(block.trim()) {
+                issues.push(issue);
+            }
+            clean = format!("{}{}", &clean[..start], &clean[end + 17..]);
+        } else {
+            break;
+        }
+    }
+    (clean, issues)
 }
 
 fn question_scope(question: &str) -> QuestionScope {
@@ -869,6 +930,20 @@ pub enum AgentError {
     Database(#[from] DatabaseError),
     #[error("failed to serialize Agent context: {0}")]
     Serialization(#[from] serde_json::Error),
+}
+
+pub async fn list_issues(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+) -> Result<Json<Vec<Value>>, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    state
+        .auth
+        .database
+        .list_player_issues(&user_id)
+        .await
+        .map(Json)
+        .map_err(|error| AuthApiError::internal(error.to_string()))
 }
 
 pub async fn status(

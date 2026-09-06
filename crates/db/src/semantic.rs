@@ -348,6 +348,30 @@ impl SemanticBuilder {
                     source_row,
                 ),
             });
+        } else if function == "MulticastNotifyKilledEnemy" {
+            let payload = event.raw.get("payload").unwrap_or(&Value::Null);
+            let killer = payload.get("KillerCharacter").and_then(Value::as_u64);
+            let killed_char = payload.get("KilledCharacter").and_then(Value::as_u64);
+            if let (Some(killer_guid), Some(victim_guid)) = (killer, killed_char) {
+                self.parser_drafts.push(CombatDraft {
+                    timestamp_ms: event.timestamp_ms,
+                    kind: "kill".to_owned(),
+                    attacker_state: None,
+                    attacker_pawn: Some(killer_guid),
+                    victim_pawn: Some(victim_guid),
+                    damage: None,
+                    killed: true,
+                    weapon: None,
+                    hit_region: None,
+                    evidence: self.evidence(
+                        None,
+                        event.timestamp_ms,
+                        "kill",
+                        "parser_events.ndjson",
+                        source_row,
+                    ),
+                });
+            }
         }
     }
 
@@ -486,6 +510,23 @@ impl SemanticBuilder {
                     .map(|(_, _, weapon)| weapon.clone())
             });
         }
+        for event in self
+            .combat
+            .iter_mut()
+            .filter(|event| event.kind == "kill" && event.weapon.is_none())
+        {
+            event.weapon = event.attacker_player_id.as_ref().and_then(|player| {
+                shot_weapons
+                    .iter()
+                    .rev()
+                    .find(|(shot_player, time, _)| {
+                        shot_player == player
+                            && *time <= event.timestamp_ms
+                            && event.timestamp_ms - *time <= 2_000
+                    })
+                    .map(|(_, _, weapon)| weapon.clone())
+            });
+        }
         for draft in std::mem::take(&mut self.server_drafts) {
             let round_no = self.round_for_time(draft.timestamp_ms);
             let mut evidence = draft.evidence;
@@ -509,6 +550,19 @@ impl SemanticBuilder {
                         .as_ref()
                         .and_then(split_area)
                         .map(str::to_owned);
+                    let (weapon, hit_region) = self
+                        .combat
+                        .iter()
+                        .rev()
+                        .find(|e| {
+                            e.kind == "damage"
+                                && e.timestamp_ms <= draft.timestamp_ms
+                                && draft.timestamp_ms - e.timestamp_ms <= 2_000
+                                && (e.attacker_player_id.as_deref() == attacker.as_deref()
+                                    || e.victim_player_id.as_deref() == victim.as_deref())
+                        })
+                        .map(|e| (e.weapon.clone(), e.hit_region.clone()))
+                        .unwrap_or((None, None));
                     self.combat.push(SemanticCombat {
                         round_no,
                         timestamp_ms: draft.timestamp_ms,
@@ -517,8 +571,8 @@ impl SemanticBuilder {
                         victim_player_id: victim,
                         damage: None,
                         killed: true,
-                        weapon: None,
-                        hit_region: None,
+                        weapon,
+                        hit_region,
                         attacker_position,
                         victim_position,
                         area,

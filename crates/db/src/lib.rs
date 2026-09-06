@@ -1781,11 +1781,82 @@ impl Database {
         Ok(())
     }
 
+    /// Retrieve the player's personal issues for coaching context.
+    pub async fn list_player_issues(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>, Option<String>, f64, f64, String, i64, Option<String>, Option<i64>, Option<i64>)>(
+            "SELECT issue_key, category, title, description, map_name, side, area, severity, confidence, status, occurrences, last_match_id, last_round_no, last_timestamp_ms FROM player_issues WHERE user_id = ? AND status != 'resolved' ORDER BY occurrences DESC, severity DESC LIMIT 10",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| json!({
+            "issue_key": r.0, "category": r.1, "title": r.2, "description": r.3,
+            "map": r.4, "side": r.5, "area": r.6,
+            "severity": r.7, "confidence": r.8, "status": r.9, "occurrences": r.10,
+            "last_match_id": r.11, "last_round_no": r.12, "last_timestamp_ms": r.13,
+        })).collect())
+    }
+
+    /// Record or update a player issue from coaching feedback.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_player_issue(
+        &self,
+        user_id: &str,
+        issue_key: &str,
+        category: &str,
+        title: &str,
+        description: Option<&str>,
+        map_name: Option<&str>,
+        side: Option<&str>,
+        area: Option<&str>,
+        severity: f64,
+        confidence: f64,
+        match_id: Option<&str>,
+        round_no: Option<i64>,
+        timestamp_ms: Option<i64>,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            r#"INSERT INTO player_issues (id, user_id, issue_key, category, title, description, map_name, side, area, severity, confidence, last_match_id, last_round_no, last_timestamp_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, issue_key) DO UPDATE SET
+                category = excluded.category,
+                title = excluded.title,
+                description = excluded.description,
+                severity = (player_issues.severity * 0.6 + excluded.severity * 0.4),
+                confidence = excluded.confidence,
+                status = 'active',
+                occurrences = player_issues.occurrences + 1,
+                last_match_id = excluded.last_match_id,
+                last_round_no = excluded.last_round_no,
+                last_timestamp_ms = excluded.last_timestamp_ms,
+                updated_at = CURRENT_TIMESTAMP"#,
+        )
+        .bind(format!("{user_id}:{issue_key}"))
+        .bind(user_id)
+        .bind(issue_key)
+        .bind(category)
+        .bind(title)
+        .bind(description)
+        .bind(map_name)
+        .bind(side)
+        .bind(area)
+        .bind(severity)
+        .bind(confidence)
+        .bind(match_id)
+        .bind(round_no)
+        .bind(timestamp_ms)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn agent_usage_for_user(
         &self,
         user_id: &str,
-    ) -> Result<AgentUsageSummary, DatabaseError> {
-        let (input, output, total, cost, priced) = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+    ) -> Result<AgentUsageSummary, DatabaseError> {        let (input, output, total, cost, priced) = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
             r#"
             SELECT COALESCE(SUM(input_tokens), 0),
                    COALESCE(SUM(output_tokens), 0),

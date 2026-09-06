@@ -341,17 +341,23 @@ function renderMarkdown(markdown: string): string {
     const trimmed = line.trim();
     const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
     const unorderedMatch = trimmed.match(/^[-*]\s+(.*)/);
-    const orderedMatch = trimmed.match(/^\d+\.\s+(.*)/);
+    const orderedMatch = trimmed.match(/^\d+[.)]\s+(.*)/);
     if (headerMatch) { flushParagraph(); flushList(); const level = headerMatch[1].length; result.push(`<h${level}>${headerMatch[2]}</h${level}>`); }
     else if (unorderedMatch) { flushParagraph(); if (!inList || inOrdered) { flushList(); result.push("<ul>"); inList = true; inOrdered = false; } result.push(`<li>${unorderedMatch[1]}</li>`); }
-    else if (orderedMatch) { flushParagraph(); if (!inList || !inOrdered) { flushList(); result.push("<ol>"); inList = true; inOrdered = true; } result.push(`<li>${orderedMatch[1]}</li>`); }
-    else if (trimmed === "") { flushParagraph(); flushList(); }
+    else if (orderedMatch) {
+      flushParagraph();
+      if (!inList || !inOrdered) { flushList(); result.push("<ol>"); inList = true; inOrdered = true; }
+      result.push(`<li>${orderedMatch[1]}</li>`);
+    }
+    else if (trimmed === "") { flushParagraph(); }
     else { flushList(); paragraph.push(trimmed); }
   }
   flushParagraph();
   flushList();
   let html = result.join("\n");
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
   inlineCodes.forEach((code, i) => { html = html.replace(`\x00INLINECODE${i}\x00`, code); });
   codeBlocks.forEach((block, i) => { html = html.replace(`\x00CODEBLOCK${i}\x00`, block); });
   return html;

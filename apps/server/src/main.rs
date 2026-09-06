@@ -65,6 +65,7 @@ fn app(state: AppState) -> Router {
         .route("/api/matches/{id}", get(matches::get_match).delete(matches::delete_match))
         .route("/api/matches/{id}/compact", get(matches::get_compact_replay))
         .route("/api/maps", get(matches::list_maps))
+        .route("/api/issues", get(agent::list_issues))
         .route("/api/matches/{id}/coach", post(agent::coach_match))
         .route("/api/matches/{id}/coaching", get(agent::history))
         .route(
