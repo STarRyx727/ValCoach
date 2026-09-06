@@ -452,7 +452,10 @@ impl LlmProvider {
         }
         Ok(Self {
             client: Client::builder()
-                .timeout(Duration::from_secs(120))
+                .timeout(Duration::from_secs(300))
+                .connect_timeout(Duration::from_secs(30))
+                .pool_idle_timeout(Duration::from_secs(90))
+                .tcp_keepalive(Duration::from_secs(60))
                 .build()?,
             kind,
             model,
@@ -559,11 +562,15 @@ impl LlmProvider {
             let response = match attempt_request.send().await {
                 Ok(resp) => resp,
                 Err(error) => {
-                    if attempt < 2 && (error.is_timeout() || error.is_connect()) {
-                        tracing::warn!(attempt, error = %error, "retrying LLM request");
+                    if attempt < 2 && error.is_connect() {
+                        tracing::warn!(attempt, error = %error, "retrying LLM request (connect error)");
                         tokio::time::sleep(std::time::Duration::from_millis(500 * (1 + attempt as u64))).await;
                         last_error = Some(AgentError::Http(error));
                         continue;
+                    }
+                    if attempt < 2 && error.is_timeout() {
+                        tracing::warn!(attempt, error = %error, "LLM request timed out (likely still generating); not retrying to avoid duplicate charges");
+                        return Err(AgentError::Http(error));
                     }
                     return Err(AgentError::Http(error));
                 }
