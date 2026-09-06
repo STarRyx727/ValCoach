@@ -1738,11 +1738,13 @@ impl Database {
 
         let compact = json!({
             "match_id": match_id,
-            "map": replay.metadata.map,
+            "map": replay.metadata.map.as_deref().map(valcoach_domain::map_display_name),
+            "map_raw": replay.metadata.map,
             "duration_ms": replay.metadata.duration_ms,
             "player_agent": players.iter()
                 .find(|p| p.id == bound_player.as_deref().unwrap_or(""))
                 .and_then(|p| p.agent_name.as_deref())
+                .map(valcoach_domain::agent_display_name)
                 .unwrap_or("unknown"),
             "rounds": compact_rounds,
             "diagnostics": diagnostics,

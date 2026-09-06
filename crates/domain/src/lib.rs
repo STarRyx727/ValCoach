@@ -11,6 +11,51 @@ use serde_json::Value;
 pub type MatchId = String;
 pub type PlayerId = String;
 
+/// Convert internal agent codename to display name.
+/// "Hunter" -> "Sova", "Clay" -> "Raze", etc.
+pub fn agent_display_name(codename: &str) -> &str {
+    match codename {
+        "AggroBot" => "Gekko",
+        "Clay" => "Raze",
+        "Deadeye" => "Chamber",
+        "Hunter" => "Sova",
+        "Pine" => "Vyse",
+        "Sarge" => "Brimstone",
+        "Smonk" => "Clove",
+        "Sprinter" => "Neon",
+        "Vampire" => "Reyna",
+        "Wushu" => "Jett",
+        _ => codename,
+    }
+}
+
+/// Convert map asset path to display name.
+/// "/Game/Maps/Bonsai/Bonsai" -> "Split"
+pub fn map_display_name(map_asset_path: &str) -> &str {
+    let name = map_asset_path.rsplit('/').next().unwrap_or("");
+    match name {
+        "Bonsai" => "Split",
+        "Ascent" => "Ascent",
+        "Duality" => "Bind",
+        "Triad" => "Haven",
+        "Juliett" => "Sunset",
+        "Jam" => "Lotus",
+        "Pitt" => "Pearl",
+        "Canyon" => "Fracture",
+        "Foxtrot" => "Breeze",
+        "Port" => "Icebox",
+        "Infinity" => "Abyss",
+        "Rook" => "Corrode",
+        "Plummet" => "Summit",
+        _ => name,
+    }
+}
+
+/// Extract the internal map name from asset path.
+pub fn map_internal_name(map_asset_path: &str) -> &str {
+    map_asset_path.rsplit('/').next().unwrap_or("")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplayRegion {
@@ -85,7 +130,7 @@ impl ReplayCapabilities {
             player_identity: CapabilityLevel::Supported,
             gunplay,
             combat: CapabilityLevel::Supported,
-            abilities: CapabilityLevel::Partial,
+            abilities: CapabilityLevel::Supported,
             economy: CapabilityLevel::Partial,
             spike_state: CapabilityLevel::Supported,
             rounds: CapabilityLevel::Supported,

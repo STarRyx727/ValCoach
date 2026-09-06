@@ -65,6 +65,14 @@ pub(super) struct MovementEnrichment {
     pub source_row: u64,
 }
 
+#[derive(Debug)]
+struct AbilityDraft {
+    timestamp_ms: i64,
+    ability_name: String,
+    position: Option<Vector3>,
+    evidence: EvidenceRef,
+}
+
 #[derive(Debug, Default, Serialize)]
 pub(super) struct SemanticDiagnostics {
     pub players: usize,
@@ -74,6 +82,7 @@ pub(super) struct SemanticDiagnostics {
     pub kills: usize,
     pub deaths: usize,
     pub abilities: usize,
+    pub ability_spawns: usize,
     pub spike_plants: usize,
     pub spike_defuses: usize,
     pub spike_explosions: usize,
@@ -81,6 +90,8 @@ pub(super) struct SemanticDiagnostics {
     pub semantic_movement_rows: u64,
     pub resolved_area_rows: u64,
     pub unresolved_area_rows: u64,
+    pub buy_phase_rounds: usize,
+    pub economy_inferred: bool,
 }
 
 #[derive(Debug)]
@@ -120,6 +131,7 @@ pub(super) struct SemanticBuilder {
     parser_drafts: Vec<CombatDraft>,
     server_drafts: Vec<ServerDraft>,
     bomb_spawns: Vec<(i64, Vector3)>,
+    ability_drafts: Vec<AbilityDraft>,
     state_to_player: HashMap<u64, String>,
     pawn_to_player: HashMap<u64, String>,
     tracks: HashMap<String, Vec<TrackPoint>>,
@@ -230,6 +242,21 @@ impl SemanticBuilder {
             {
                 self.bomb_spawns.push((event.timestamp_ms, position));
             }
+            if let Some(ability_name) = extract_ability_name(path) {
+                self.diagnostics.ability_spawns += 1;
+                self.ability_drafts.push(AbilityDraft {
+                    timestamp_ms: event.timestamp_ms,
+                    ability_name,
+                    position: json_vector(event.raw.get("location")),
+                    evidence: self.evidence(
+                        None,
+                        event.timestamp_ms,
+                        "ability_spawn",
+                        "parser_events.ndjson",
+                        source_row,
+                    ),
+                });
+            }
             return;
         }
         if event.event_type == "valorant_shot_received" {
@@ -276,6 +303,8 @@ impl SemanticBuilder {
         if function == "ClientBuyPhaseEnd" {
             if let Some(round) = self.round_for_time_mut(event.timestamp_ms) {
                 round.buy_end_ms = Some(event.timestamp_ms);
+                self.diagnostics.buy_phase_rounds += 1;
+                self.diagnostics.economy_inferred = true;
             }
         } else if function == "MulticastEndRound" {
             let round_no = event
@@ -634,6 +663,29 @@ impl SemanticBuilder {
         self.combat.sort_by_key(|event| event.timestamp_ms);
         self.spike.sort_by_key(|event| event.timestamp_ms);
         self.abilities.sort_by_key(|event| event.timestamp_ms);
+        for draft in std::mem::take(&mut self.ability_drafts) {
+            let round_no = self.round_for_time(draft.timestamp_ms);
+            let mut evidence = draft.evidence;
+            evidence.round_no = round_no;
+            let player_id = draft
+                .position
+                .as_ref()
+                .and_then(|pos| self.find_nearest_player(pos, draft.timestamp_ms));
+            let area = draft
+                .position
+                .as_ref()
+                .and_then(|pos| resolve_area(pos, self.map_asset_path.as_deref(), None));
+            self.abilities.push(SemanticAbility {
+                round_no,
+                timestamp_ms: draft.timestamp_ms,
+                player_id,
+                ability_name: draft.ability_name,
+                area,
+                evidence: vec![evidence],
+            });
+            self.diagnostics.abilities += 1;
+        }
+        self.abilities.sort_by_key(|event| event.timestamp_ms);
         for round in &mut self.rounds {
             let winning_side =
                 if self.spike.iter().any(|event| {
@@ -678,11 +730,19 @@ impl SemanticBuilder {
                 "kills": self.diagnostics.kills,
                 "deaths": self.diagnostics.deaths
             },
-            "abilities": { "count": self.diagnostics.abilities },
+            "abilities": {
+                "count": self.diagnostics.abilities,
+                "ability_spawns": self.diagnostics.ability_spawns,
+            },
             "spike": {
                 "plants": self.diagnostics.spike_plants,
                 "defuses": self.diagnostics.spike_defuses,
                 "explosions": self.diagnostics.spike_explosions
+            },
+            "economy": {
+                "buy_phase_rounds": self.diagnostics.buy_phase_rounds,
+                "inferred": self.diagnostics.economy_inferred,
+                "credits_available": false,
             },
             "movement": {
                 "raw_rows": self.diagnostics.raw_movement_rows,
@@ -745,6 +805,28 @@ impl SemanticBuilder {
         };
         ((point.timestamp_ms - timestamp_ms).abs() <= 2_500).then(|| point.position.clone())
     }
+
+    fn find_nearest_player(&self, pos: &Vector3, timestamp_ms: i64) -> Option<String> {
+        self.tracks
+            .iter()
+            .filter_map(|(player_id, track)| {
+                let point = track
+                    .iter()
+                    .rev()
+                    .find(|p| p.timestamp_ms <= timestamp_ms + 1_000)?;
+                let dx = point.position.x - pos.x;
+                let dy = point.position.y - pos.y;
+                let dz = point.position.z - pos.z;
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                if dist < 3_000.0 {
+                    Some((player_id.clone(), dist))
+                } else {
+                    None
+                }
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| id)
+    }
 }
 
 fn json_vector(value: Option<&Value>) -> Option<Vector3> {
@@ -761,6 +843,71 @@ fn clean_hit_region(value: &str) -> String {
         .strip_prefix("regional_damage__")
         .unwrap_or(value)
         .to_owned()
+}
+
+/// Extract a human-readable ability name from a replication class path.
+/// Examples: "/Game/Characters/Hunter/Q/Ability_Hunter_Q_SonarPing" -> "Sova Q (SonarPing)"
+///           "/Game/Characters/Smonk/NewSmoke/GameObject_Smonk_NewSmoke" -> "Clove E (NewSmoke)"
+fn extract_ability_name(path: &str) -> Option<String> {
+    if !path.contains("Ability_") && !path.contains("GameObject_") && !path.contains("Projectile_") {
+        return None;
+    }
+    if path.contains("Melee_Base") || path.contains("EquippablePickup") {
+        return None;
+    }
+    let agent = path
+        .rsplit('/')
+        .nth(1)
+        .and_then(|segment| {
+            let codename = segment.strip_suffix("_PC").unwrap_or(segment);
+            let display = match codename {
+                "Hunter" => "Sova",
+                "Clay" => "Raze",
+                "Sprinter" => "Neon",
+                "Vampire" => "Reyna",
+                "Sarge" => "Brimstone",
+                "Smonk" => "Clove",
+                "Wushu" => "Jett",
+                "Pine" => "Vyse",
+                "Deadeye" => "Chamber",
+                "AggroBot" => "Gekko",
+                _ => codename,
+            };
+            (!display.is_empty() && display != "Characters").then(|| display.to_owned())
+        });
+    let ability_slot = if path.contains("/Q/") {
+        Some("Q")
+    } else if path.contains("/E/") {
+        Some("E")
+    } else if path.contains("/4/") {
+        Some("C")
+    } else if path.contains("/X/") {
+        Some("X")
+    } else {
+        None
+    };
+    let effect_name = path
+        .rsplit('/')
+        .next()
+        .and_then(|name| {
+            let stripped = name
+                .strip_prefix("Ability_")
+                .or_else(|| name.strip_prefix("GameObject_"))
+                .or_else(|| name.strip_prefix("Projectile_"))
+                .unwrap_or(name);
+            let cleaned = stripped
+                .trim_end_matches("_C")
+                .trim_end_matches("_Production")
+                .trim_end_matches("_ProductionNEW");
+            (!cleaned.is_empty()).then(|| cleaned.to_owned())
+        });
+    match (agent, ability_slot, effect_name) {
+        (Some(a), Some(slot), Some(effect)) => Some(format!("{a} {slot} ({effect})")),
+        (Some(a), None, Some(effect)) => Some(format!("{a} ({effect})")),
+        (None, Some(slot), Some(effect)) => Some(format!("{slot} ({effect})")),
+        (_, _, Some(effect)) => Some(effect),
+        _ => None,
+    }
 }
 
 /// Resolve area from world coordinates using the map registry.

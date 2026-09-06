@@ -27,6 +27,8 @@ Check the capability map before making each factual claim. If a capability is pa
 Separate observed facts from coaching recommendations. Cite applicable evidence using its exact match_id, player_id, human_time, and evidence_type.
 Always use human_time (format "R8 00:26.1") when referring to timestamps. Never use raw milliseconds.
 When referring to positions, use the "area" field (e.g. "A Site", "A Main") rather than raw coordinates.
+Economy is inferred from buy-phase timing, not individual purchases; state this when discussing economy.
+Abilities include both ultimate events from server and ability-use actor spawns from the parser.
 If personal_issues are present in the context, relate current observations to known recurring problems and mention trends.
 When you identify a recurring tactical issue, add a <coaching_issue> block at the end with: issue_key, category, title, description, map, side, area, severity (0-1), confidence (0-1).
 Answer in the language used by the player. Be concise and actionable. Use markdown formatting (headers, bold, lists) for readability."#;
@@ -226,12 +228,19 @@ impl AgentService {
         };
         limitations.sort();
         limitations.dedup();
-        evidence.sort_by_key(|left| left.to_string());
-        evidence.dedup();
-
+        if !evidence.is_empty() {
+            evidence.sort_by_key(|v| v.to_string());
+            evidence.dedup();
+        }
         let context = json!({
             "match_id": replay.id,
-            "metadata": replay.metadata,
+            "metadata": {
+                "replay_id": replay.metadata.replay_id,
+                "branch": replay.metadata.branch,
+                "map": replay.metadata.map.as_deref().map(valcoach_domain::map_display_name),
+                "map_raw": replay.metadata.map,
+                "duration_ms": replay.metadata.duration_ms,
+            },
             "capabilities": replay.capabilities,
             "summary": replay.summary,
             "selected_player_id": selected_player,
@@ -533,7 +542,53 @@ impl LlmProvider {
     }
 
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<Value, AgentError> {
-        let response = request.send().await?;
+        let mut last_error: Option<AgentError> = None;
+        for attempt in 0..3u32 {
+            let attempt_request = match request.try_clone() {
+                Some(req) => req,
+                None => {
+                    let response = request.send().await.map_err(AgentError::Http)?;
+                    return self.process_response(response).await;
+                }
+            };
+            let response = match attempt_request.send().await {
+                Ok(resp) => resp,
+                Err(error) => {
+                    if attempt < 2 && (error.is_timeout() || error.is_connect()) {
+                        tracing::warn!(attempt, error = %error, "retrying LLM request");
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * (1 + attempt as u64))).await;
+                        last_error = Some(AgentError::Http(error));
+                        continue;
+                    }
+                    return Err(AgentError::Http(error));
+                }
+            };
+            let status = response.status();
+            let request_id = response
+                .headers()
+                .get("x-request-id")
+                .or_else(|| response.headers().get("request-id"))
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            let bytes = response.bytes().await?;
+            if !status.is_success() {
+                let detail = provider_error_detail(&bytes).replace(&self.api_key, "[redacted]");
+                if status.is_server_error() && attempt < 2 {
+                    tracing::warn!(attempt, status = status.as_u16(), "retrying LLM request after server error");
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * (1 + attempt as u64))).await;
+                    last_error = Some(AgentError::Provider { status: status.as_u16(), detail, request_id });
+                    continue;
+                }
+                return Err(AgentError::Provider { status: status.as_u16(), detail, request_id });
+            }
+            return serde_json::from_slice(&bytes).map_err(|error| {
+                AgentError::InvalidResponse(format!("response was not valid JSON: {error}"))
+            });
+        }
+        Err(last_error.unwrap_or_else(|| AgentError::InvalidResponse("all retries exhausted".to_owned())))
+    }
+
+    async fn process_response(&self, response: reqwest::Response) -> Result<Value, AgentError> {
         let status = response.status();
         let request_id = response
             .headers()
@@ -544,11 +599,7 @@ impl LlmProvider {
         let bytes = response.bytes().await?;
         if !status.is_success() {
             let detail = provider_error_detail(&bytes).replace(&self.api_key, "[redacted]");
-            return Err(AgentError::Provider {
-                status: status.as_u16(),
-                detail,
-                request_id,
-            });
+            return Err(AgentError::Provider { status: status.as_u16(), detail, request_id });
         }
         serde_json::from_slice(&bytes).map_err(|error| {
             AgentError::InvalidResponse(format!("response was not valid JSON: {error}"))
