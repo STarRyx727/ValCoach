@@ -170,18 +170,26 @@ pub async fn get_compact_replay(
 
 pub async fn list_maps(
     State(_state): State<AppState>,
-    _session: tower_sessions::Session,
+    session: tower_sessions::Session,
 ) -> Result<Json<Vec<serde_json::Value>>, AuthApiError> {
-    let maps_dir = std::path::Path::new("data").join("maps");
+    let _ = session;
+    let maps_dir = std::env::current_dir().unwrap_or_default().join("data").join("maps");
+    tracing::info!(maps_dir = %maps_dir.display(), "loading maps from disk");
     let mut maps = Vec::new();
-    if let Ok(mut entries) = tokio::fs::read_dir(&maps_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.path().extension().is_some_and(|ext| ext == "json")
-                && let Ok(bytes) = tokio::fs::read(entry.path()).await
-                && let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&bytes)
-            {
-                maps.push(meta);
+    match tokio::fs::read_dir(&maps_dir).await {
+        Ok(mut entries) => {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if entry.path().extension().is_some_and(|ext| ext == "json")
+                    && let Ok(bytes) = tokio::fs::read(entry.path()).await
+                    && let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                {
+                    maps.push(meta);
+                }
             }
+            tracing::info!(count = maps.len(), "maps loaded");
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, maps_dir = %maps_dir.display(), "failed to read maps directory");
         }
     }
     maps.sort_by(|a, b| {

@@ -13,6 +13,7 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+tracing.workspace = true
 uuid.workspace = true
 valcoach-domain = { path = "../domain" }
 valcoach-maps = { path = "../maps" }

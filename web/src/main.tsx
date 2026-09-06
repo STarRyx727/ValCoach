@@ -182,13 +182,15 @@ function MatchPanel({ detail, onBind, agentStatus, onUsage, onOpenSettings }: { 
   const rosterReady = teamA.length === 5 && teamB.length === 5;
   const boundPlayer = detail.players.find((player) => player.is_bound);
   const choose = async (player: Player) => { setBinding(player.id); try { await onBind(player); } finally { setBinding(null); } };
-  useEffect(() => { api<CompactReplay>(`/api/matches/${detail.id}/compact`).then(setCompact).catch(() => setCompact(null)); }, [detail.id]);
-  useEffect(() => { api<MapMeta[]>("/api/maps").then(setMaps).catch(() => setMaps([])); }, []);
+  useEffect(() => { api<CompactReplay>(`/api/matches/${detail.id}/compact`).then(setCompact).catch((e) => { console.error("compact load failed:", e); setCompact(null); }); }, [detail.id]);
+  useEffect(() => { api<MapMeta[]>("/api/maps").then((m) => { console.log("maps loaded:", m.length, m.slice(0, 3).map(x => x.map_url)); setMaps(m); }).catch((e) => { console.error("maps load failed:", e); setMaps([]); }); }, []);
   const mapMeta = maps.find((m) => m.map_url === detail.metadata.map);
+  const mapMatched = !!mapMeta;
+  console.log("mapMeta match:", mapMatched, "detail.map:", detail.metadata.map, "maps:", maps.length);
   return <><div className="review-heading"><div><span className="eyebrow">MATCH REVIEW</span><h1>{mapDisplayName(detail.metadata.map)}</h1><p>{formatDuration(detail.metadata.duration_ms)} · {detail.metadata.replay_id.slice(0, 13)}</p></div><span className="ready-badge"><i />数据就绪</span></div>
     <nav className="tab-bar">{(["roster", "rounds", "coach"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t === "roster" ? "阵容" : t === "rounds" ? "回合" : "教练"}</button>)}</nav>
     {tab === "roster" && <section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name)}</span>}</div>{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} binding={binding} onChoose={choose} /></div>}</section>}
-    {tab === "rounds" && (compact && mapMeta ? <MapViewer compact={compact} mapMeta={mapMeta} /> : <div className="empty-state"><p>正在加载紧凑回放数据…</p></div>)}
+    {tab === "rounds" && (mapMeta ? <MapViewer compact={compact} mapMeta={mapMeta} /> : <div className="empty-state"><p>{maps.length === 0 ? "地图数据未加载（请确认已运行 python scripts\\fetch_maps.py）" : `未找到匹配的地图元数据。已加载 ${maps.length} 张地图，当前录像地图: ${detail.metadata.map}`}</p></div>)}
     {tab === "coach" && <CoachPanel matchId={detail.id} status={agentStatus} playerSelected={!!boundPlayer} onUsage={onUsage} onOpenSettings={onOpenSettings} />}
   </>;
 }
@@ -224,23 +226,22 @@ function CoachPanel({ matchId, status, playerSelected, onUsage, onOpenSettings }
   return <section className="coach-section"><div className="section-title"><div><span className="eyebrow">AI COACH</span><h2>开始复盘</h2></div>{status.configured && <span className="model-label">{status.provider} / {status.model}</span>}</div>{!status.configured ? <div className="coach-gate"><span>◇</span><div><strong>先连接一个模型</strong><p>支持 OpenAI、Claude、DeepSeek 和兼容接口。</p></div><button className="secondary" onClick={onOpenSettings}>打开模型设置</button></div> : !playerSelected ? <div className="coach-gate"><span>◎</span><div><strong>先确认你的玩家</strong><p>选择上方阵容中的"这是我"，教练才会使用对应证据。</p></div></div> : <form onSubmit={ask} className="coach-form"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={4000} placeholder="问问这场对局里最值得改进的一件事…" />{error && <p className="notice error"><strong>{error}</strong><span>可以修改问题后重新发送。</span></p>}<button className="primary" disabled={pending || !question.trim()}>{pending ? "正在复盘…" : "发送给教练"}</button></form>}<div className="messages">{messages.map((message) => <section key={message.id} className={`message ${message.role}`}><header><strong>{message.role === "user" ? "你" : "VALCOACH"}</strong>{message.role === "assistant" && <small>{message.usage.total_tokens} tokens</small>}</header>{message.role === "assistant" ? <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} /> : <p>{message.content}</p>}{message.role === "assistant" && (message.evidence.length > 0 || message.limitations.length > 0) && <details><summary>查看依据与数据限制</summary><pre>{JSON.stringify({ evidence: message.evidence, limitations: message.limitations }, null, 2)}</pre></details>}</section>)}</div></section>;
 }
 
-function MapViewer({ compact, mapMeta }: { compact: CompactReplay; mapMeta: MapMeta }) {
+function MapViewer({ compact, mapMeta }: { compact: CompactReplay | null; mapMeta: MapMeta }) {
   const [selectedRound, setSelectedRound] = useState(0);
-  const round = compact.rounds[selectedRound];
-  if (!round) return <div className="empty-state"><p>没有回合数据。</p></div>;
+  const round = compact?.rounds[selectedRound];
   const callouts = mapMeta.callouts.filter((c) => c.region_name);
   return <section className="map-viewer">
     <div className="map-canvas-wrap">
-      <div className="map-round-selector">
+      {compact && <div className="map-round-selector">
         {compact.rounds.map((r, i) => <button key={i} className={`round-chip ${i === selectedRound ? "active" : ""}`} onClick={() => setSelectedRound(i)}>{r.human_round}<small>{r.side ?? ""}</small></button>)}
-      </div>
+      </div>}
       <div className="map-canvas">
         <svg viewBox="0 0 1024 1024" className="map-svg">
           {callouts.map((c, i) => {
             const x = c.location.x; const y = c.location.y;
             return <g key={i}><circle cx={x} cy={y} r={3} fill="#3a4858" /><text x={x + 6} y={y + 3} fill="#5a6a7a" fontSize={10}>{c.region_name}</text></g>;
           })}
-          {round.route.map((seg, i) => {
+          {round?.route.map((seg, i) => {
             const fromArea = seg.from ? callouts.find((c) => c.region_name === seg.from) : null;
             const toArea = seg.to ? callouts.find((c) => c.region_name === seg.to) : null;
             const areaPt = seg.area ? callouts.find((c) => c.region_name === seg.area) : null;
@@ -253,34 +254,36 @@ function MapViewer({ compact, mapMeta }: { compact: CompactReplay; mapMeta: MapM
               <circle cx={startX} cy={startY} r={4} fill="#53bce8" />
               {seg.to && <circle cx={endX} cy={endY} r={4} fill="#56d6a0" />}
             </g>;
-          })}
-          {round.combat.events.map((e, i) => {
+          }) ?? []}
+          {round?.combat.events.map((e, i) => {
             const area = e.area ? callouts.find((c) => c.region_name === e.area) : null;
             if (!area) return null;
             const isKill = e.result === "kill";
             return <g key={i}><circle cx={area.location.x} cy={area.location.y} r={isKill ? 7 : 5} fill={isKill ? "#ff4655" : "#f2c66d"} stroke="#fff" strokeWidth={1} /><text x={area.location.x + 9} y={area.location.y + 3} fill={isKill ? "#ff4655" : "#f2c66d"} fontSize={9} fontWeight="bold">{e.weapon ?? e.kind}{e.shots ? ` ×${e.shots}` : ""}</text></g>;
-          })}
-          {round.spike.map((s, i) => {
+          }) ?? []}
+          {round?.spike.map((s, i) => {
             const area = s.area ? callouts.find((c) => c.region_name === s.area) : null;
             if (!area) return null;
             return <g key={i}><rect x={area.location.x - 5} y={area.location.y - 5} width={10} height={10} fill="#56d6a0" stroke="#fff" strokeWidth={1} /><text x={area.location.x + 8} y={area.location.y + 3} fill="#56d6a0" fontSize={9}>{s.kind}</text></g>;
-          })}
+          }) ?? []}
         </svg>
       </div>
     </div>
     <div className="map-round-detail">
-      <div className="round-header"><h3>{round.human_round} · {round.side ?? "未知"}</h3><span>{round.winner ? `胜方: ${round.winner}` : ""}</span></div>
-      <div className="round-stats">
-        <span>射击: {round.combat.totals.shots}</span><span>伤害: {round.combat.totals.damage}</span>
-        <span>击杀: {round.combat.totals.kills}</span><span>死亡: {round.combat.totals.deaths}</span>
-      </div>
-      <div className="round-route">
-        <h4>路线</h4>
-        {round.route.map((seg, i) => <div key={i} className="route-seg"><span className="route-time">{seg.start}</span><span>{seg.from ? `${seg.from} → ${seg.to}` : seg.area}</span><span className={`route-alive ${seg.alive ? "alive" : "dead"}`}>{seg.alive ? "存活" : "阵亡"}</span></div>)}
-      </div>
-      {round.combat.events.length > 0 && <div className="round-combat-list"><h4>战斗</h4>{round.combat.events.map((e, i) => <div key={i} className="combat-item"><span className="combat-time">{e.time}</span><span className="combat-kind">{e.kind}</span><span>{e.weapon}</span>{e.shots ? <span>×{e.shots}</span> : null}{e.damage ? <span>{e.damage} dmg</span> : null}{e.result === "kill" ? <strong className="kill-tag">击杀</strong> : null}<span className="combat-area">{e.area}</span></div>)}</div>}
-      {round.abilities.length > 0 && <div className="round-abilities"><h4>技能</h4>{round.abilities.map((a, i) => <div key={i} className="ability-item"><span>{a.time}</span><span>{a.ability}</span><span>{a.area}</span></div>)}</div>}
-      {round.spike.length > 0 && <div className="round-spike"><h4>Spike</h4>{round.spike.map((s, i) => <div key={i} className="spike-item"><span>{s.time}</span><span>{s.kind}</span><span>{s.area}</span></div>)}</div>}
+      {round ? <>
+        <div className="round-header"><h3>{round.human_round} · {round.side ?? "未知"}</h3><span>{round.winner ? `胜方: ${round.winner}` : ""}</span></div>
+        <div className="round-stats">
+          <span>射击: {round.combat.totals.shots}</span><span>伤害: {round.combat.totals.damage}</span>
+          <span>击杀: {round.combat.totals.kills}</span><span>死亡: {round.combat.totals.deaths}</span>
+        </div>
+        <div className="round-route">
+          <h4>路线</h4>
+          {round.route.map((seg, i) => <div key={i} className="route-seg"><span className="route-time">{seg.start}</span><span>{seg.from ? `${seg.from} → ${seg.to}` : seg.area}</span><span className={`route-alive ${seg.alive ? "alive" : "dead"}`}>{seg.alive ? "存活" : "阵亡"}</span></div>)}
+        </div>
+        {round.combat.events.length > 0 && <div className="round-combat-list"><h4>战斗</h4>{round.combat.events.map((e, i) => <div key={i} className="combat-item"><span className="combat-time">{e.time}</span><span className="combat-kind">{e.kind}</span><span>{e.weapon}</span>{e.shots ? <span>×{e.shots}</span> : null}{e.damage ? <span>{e.damage} dmg</span> : null}{e.result === "kill" ? <strong className="kill-tag">击杀</strong> : null}<span className="combat-area">{e.area}</span></div>)}</div>}
+        {round.abilities.length > 0 && <div className="round-abilities"><h4>技能</h4>{round.abilities.map((a, i) => <div key={i} className="ability-item"><span>{a.time}</span><span>{a.ability}</span><span>{a.area}</span></div>)}</div>}
+        {round.spike.length > 0 && <div className="round-spike"><h4>Spike</h4>{round.spike.map((s, i) => <div key={i} className="spike-item"><span>{s.time}</span><span>{s.kind}</span><span>{s.area}</span></div>)}</div>}
+      </> : <div className="empty-state"><p>{compact ? "选择回合查看详情" : "紧凑回放数据加载中或不可用。地图标注已显示，但路线和战斗数据需要选择玩家后重新导入录像才能生成。"}</p></div>}
     </div>
   </section>;
 }

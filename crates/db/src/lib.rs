@@ -1757,16 +1757,22 @@ impl Database {
     }
 
     async fn get_cached_compact(&self, match_id: &str) -> Result<Option<Value>, DatabaseError> {
-        let value = sqlx::query_scalar::<_, String>(
+        match sqlx::query_scalar::<_, String>(
             "SELECT compact_json FROM compact_replays WHERE match_id = ?",
         )
         .bind(match_id)
         .fetch_optional(&self.pool)
-        .await?;
-        value
-            .map(|json| serde_json::from_str(&json))
-            .transpose()
-            .map_err(Into::into)
+        .await
+        {
+            Ok(value) => value
+                .map(|json| serde_json::from_str(&json))
+                .transpose()
+                .map_err(Into::into),
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to query compact_replays (table may not exist yet)");
+                Ok(None)
+            }
+        }
     }
 
     async fn save_cached_compact(
@@ -1774,15 +1780,21 @@ impl Database {
         match_id: &str,
         compact: &Value,
     ) -> Result<(), DatabaseError> {
-        sqlx::query(
+        match sqlx::query(
             "INSERT INTO compact_replays (match_id, compact_json) VALUES (?, ?) \
              ON CONFLICT(match_id) DO UPDATE SET compact_json = excluded.compact_json, created_at = CURRENT_TIMESTAMP",
         )
         .bind(match_id)
         .bind(serde_json::to_string(compact)?)
         .execute(&self.pool)
-        .await?;
-        Ok(())
+        .await
+        {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to save compact replay cache (table may not exist)");
+                Ok(())
+            }
+        }
     }
 
     /// Retrieve the player's personal issues for coaching context.
