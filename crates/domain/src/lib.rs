@@ -1,5 +1,7 @@
 //! Stable, parser-independent data contracts for ValCoach.
 
+pub mod humanize;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -53,6 +54,8 @@ impl ValorantReplayParserSource {
                 source,
             })?;
 
+        let stderr_path = output_directory.join("parser_stderr.log");
+
         let mut command = Command::new(&self.dotnet_path);
         command
             .current_dir(&self.parser_directory)
@@ -67,10 +70,51 @@ impl ValorantReplayParserSource {
             .arg("valcoach")
             .arg("--output")
             .arg(output_directory)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
 
         let mut child = command.spawn().map_err(ReplaySourceError::Spawn)?;
         info!(replay = %replay_path.display(), output = %output_directory.display(), "starting parser export");
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let stderr_task = if let Some(stderr) = stderr {
+            let stderr_path = stderr_path.clone();
+            Some(tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut reader = stderr;
+                let mut buf = vec![0u8; 8192];
+                let file_result = tokio::fs::File::create(&stderr_path).await;
+                if let Ok(mut file) = file_result {
+                    loop {
+                        match reader.read(&mut buf).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => { let _ = file.write_all(&buf[..n]).await; }
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+        if let Some(stdout) = stdout {
+            let stdout_path = output_directory.join("parser_stdout.log");
+            tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut reader = stdout;
+                let mut buf = vec![0u8; 8192];
+                let file_result = tokio::fs::File::create(&stdout_path).await;
+                if let Ok(mut file) = file_result {
+                    loop {
+                        match reader.read(&mut buf).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => { let _ = file.write_all(&buf[..n]).await; }
+                        }
+                    }
+                }
+            });
+        }
 
         let status = tokio::select! {
             result = timeout(self.timeout, child.wait()) => match result {
@@ -87,9 +131,19 @@ impl ValorantReplayParserSource {
             }
         };
 
+        if let Some(task) = stderr_task { let _ = task.await; }
+
         if status.success() {
             Ok(())
         } else {
+            let stderr_content = tokio::fs::read_to_string(&stderr_path)
+                .await
+                .unwrap_or_default();
+            tracing::error!(
+                exit_code = ?status.code(),
+                stderr = %stderr_content.chars().take(2000).collect::<String>(),
+                "parser export failed"
+            );
             Err(ReplaySourceError::ParserFailed {
                 exit_code: status.code(),
             })
@@ -106,7 +160,7 @@ impl ReplayDataSource for ValorantReplayParserSource {
     ) -> Result<ParsedReplay, ReplaySourceError> {
         let ReplayInput::Vrf {
             path,
-            region,
+            region: _,
             output_directory,
         } = input
         else {
@@ -115,12 +169,6 @@ impl ReplayDataSource for ValorantReplayParserSource {
                 reason: "ValorantReplayParserSource accepts .vrf inputs only".to_owned(),
             });
         };
-
-        if region == valcoach_domain::ReplayRegion::China {
-            return Err(ReplaySourceError::UnsupportedTransform {
-                branch: "++Ares-Core+release-china-13.05".to_owned(),
-            });
-        }
 
         self.export(&path, &output_directory, &cancel).await?;
         ParsedBundleSource

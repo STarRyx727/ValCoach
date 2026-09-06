@@ -1,6 +1,7 @@
 use axum::{
     Json,
     extract::{Path, State},
+    http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use valcoach_db::{MatchMetricRecord, MatchRecord, PlayerRecord, ValorantAccountRecord};
@@ -118,6 +119,78 @@ pub async fn unbind_player(
             other => AuthApiError::internal(other.to_string()),
         })?;
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_match(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Path(match_id): Path<String>,
+) -> Result<StatusCode, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    let job_ids = state
+        .auth
+        .database
+        .delete_match_for_user(&user_id, &match_id)
+        .await
+        .map_err(|error| match error {
+            valcoach_db::DatabaseError::MatchNotFound => AuthApiError::unauthorized(),
+            other => AuthApiError::internal(other.to_string()),
+        })?;
+    for job_id in &job_ids {
+        let replay_path = state
+            .jobs
+            .data_directory
+            .join("replays")
+            .join(&user_id)
+            .join(format!("{job_id}.vrf"));
+        let _ = tokio::fs::remove_file(&replay_path).await;
+        let job_dir = state.jobs.data_directory.join("jobs").join(job_id);
+        let _ = tokio::fs::remove_dir_all(&job_dir).await;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_compact_replay(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Path(match_id): Path<String>,
+) -> Result<Json<serde_json::Value>, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    state
+        .auth
+        .database
+        .build_compact_replay(&user_id, &match_id)
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            valcoach_db::DatabaseError::MatchNotFound => AuthApiError::unauthorized(),
+            other => AuthApiError::internal(other.to_string()),
+        })
+}
+
+pub async fn list_maps(
+    State(state): State<AppState>,
+    _session: tower_sessions::Session,
+) -> Result<Json<Vec<serde_json::Value>>, AuthApiError> {
+    let maps_dir = state.jobs.data_directory.join("maps");
+    let mut maps = Vec::new();
+    if let Ok(mut entries) = tokio::fs::read_dir(&maps_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.path().extension().is_some_and(|ext| ext == "json")
+                && let Ok(bytes) = tokio::fs::read(entry.path()).await
+                && let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&bytes)
+            {
+                maps.push(meta);
+            }
+        }
+    }
+    maps.sort_by(|a, b| {
+        a.get("display_name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .cmp(b.get("display_name").and_then(serde_json::Value::as_str).unwrap_or(""))
+    });
+    Ok(Json(maps))
 }
 
 fn metric_view(metric: MatchMetricRecord) -> Result<MetricView, AuthApiError> {

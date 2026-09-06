@@ -28,6 +28,24 @@ type Match = {
   summary: { event_count: number; movement_count: number; has_shot_related_events: boolean };
 };
 type MatchDetail = Match & { players: Player[]; metrics: unknown[] };
+type CompactReplay = {
+  match_id: string; map: string | null; duration_ms: number | null; player_agent: string;
+  rounds: CompactRound[];
+};
+type CompactRound = {
+  round_no: number; human_round: string; side: string | null; winner: string | null;
+  start_ms: number | null; end_ms: number | null;
+  route: { from?: string; to?: string; area?: string; start: string; end: string; alive: boolean }[];
+  combat: { events: CompactCombatEvent[]; totals: { shots: number; damage: number; kills: number; deaths: number } };
+  abilities: { time: string; ability: string | null; area: string | null }[];
+  spike: { time: string; kind: string | null; area: string | null }[];
+};
+type CompactCombatEvent = { time: string; kind: string | null; weapon: string | null; area: string | null; shots?: number; damage?: number; result?: string; hit_regions?: string[] };
+type MapMeta = {
+  display_name: string; map_url: string;
+  x_multiplier: number; y_multiplier: number; x_scalar_to_add: number; y_scalar_to_add: number;
+  callouts: { region_name: string; super_region_name: string; location: { x: number; y: number } }[];
+};
 
 const JOB_LABELS: Record<string, string> = {
   queued: "排队中", probing: "识别录像", parsing: "解析对局", normalizing: "整理数据",
@@ -90,6 +108,11 @@ function App() {
   const refreshAgentStatus = useCallback(async () => setAgentStatus(await api<AgentStatus>("/api/agent/status")), []);
   const refreshAgentUsage = useCallback(async () => setAgentUsage(await api<AgentUsage>("/api/agent/usage")), []);
   const selectMatch = useCallback(async (matchId: string) => setDetail(await api<MatchDetail>(`/api/matches/${matchId}`)), []);
+  const deleteMatch = useCallback(async (matchId: string) => {
+    await api(`/api/matches/${matchId}`, { method: "DELETE" });
+    setMatches((prev) => prev.filter((match) => match.id !== matchId));
+    setDetail((prev) => prev?.id === matchId ? null : prev);
+  }, []);
 
   useEffect(() => { api<User>("/api/auth/me").then(setUser).catch(() => setUser(null)); }, []);
   useEffect(() => { if (user) { refreshMatches().catch((reason) => setError(String(reason))); refreshAgentStatus().catch(() => undefined); refreshAgentUsage().catch(() => undefined); } }, [user, refreshAgentStatus, refreshAgentUsage, refreshMatches]);
@@ -135,7 +158,7 @@ function App() {
 
   return <main className="app-shell"><header className="topbar"><Brand compact /><div className="topbar-actions"><span className={`agent-pill ${agentStatus.configured ? "online" : ""}`}><i />{agentStatus.configured ? `${agentStatus.provider} · ${agentStatus.model}` : "教练未配置"}</span><button className="secondary icon-button" onClick={() => setSettingsOpen(true)}>模型设置</button><span className="user-chip">{user.username}</span><button className="text-button" onClick={logout}>退出</button></div></header>
     <section className="upload-panel"><div><span className="eyebrow">NEW REVIEW</span><h1>导入一场录像</h1><p>选择国际服或国服的 .vrf 文件。解析在本机完成。</p></div><form onSubmit={upload} className="upload-form"><label className="file-picker"><input name="replay" type="file" accept=".vrf" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} /><span className="file-icon">↥</span><span><strong>{fileName || "选择录像文件"}</strong><small>{fileName ? "点击可更换文件" : "最大 100 MiB · .vrf"}</small></span></label><button className="primary" disabled={working}>{working ? "正在处理…" : "开始分析"}</button></form>{job && <JobProgress job={job} bundle={bundle} />}{error && <p className="notice error">{error}</p>}</section>
-    <section className="workspace"><aside className="match-list panel"><div className="section-heading"><div><span className="eyebrow">HISTORY</span><h2>最近对局</h2></div><span>{matches.length}</span></div>{matches.length === 0 ? <div className="empty-state"><b>暂无录像</b><p>上传完成后，对局会出现在这里。</p></div> : <ul>{matches.map((match) => <li key={match.id}><button className={`match-card ${detail?.id === match.id ? "active" : ""}`} onClick={() => selectMatch(match.id)}><span className="map-code">{mapName(match.metadata.map).slice(0, 2).toUpperCase()}</span><span><strong>{mapName(match.metadata.map)}</strong><small>{formatDuration(match.metadata.duration_ms)} · {match.metadata.replay_id.slice(0, 8)}</small></span><i>›</i></button></li>)}</ul>}</aside><article className="review-panel panel">{detail ? <MatchPanel detail={detail} onBind={bind} agentStatus={agentStatus} onUsage={refreshAgentUsage} onOpenSettings={() => setSettingsOpen(true)} /> : <div className="empty-review"><span className="target-glyph">⌖</span><h2>选择一场对局</h2><p>查看双方阵容，确认你的玩家后开始复盘。</p></div>}</article></section>
+    <section className="workspace"><aside className="match-list panel"><div className="section-heading"><div><span className="eyebrow">HISTORY</span><h2>最近对局</h2></div><span>{matches.length}</span></div>{matches.length === 0 ? <div className="empty-state"><b>暂无录像</b><p>上传完成后，对局会出现在这里。</p></div> : <ul>{matches.map((match) => <li key={match.id} className="match-item"><button className={`match-card ${detail?.id === match.id ? "active" : ""}`} onClick={() => selectMatch(match.id)}><span className="map-code">{mapName(match.metadata.map).slice(0, 2).toUpperCase()}</span><span><strong>{mapName(match.metadata.map)}</strong><small>{formatDuration(match.metadata.duration_ms)} · {match.metadata.replay_id.slice(0, 8)}</small></span><i>›</i></button><button className="delete-replay" title="删除录像" onClick={(event) => { event.stopPropagation(); if (confirm("删除这场录像及其所有分析数据？")) deleteMatch(match.id).catch((reason) => setError(String(reason))); }}>×</button></li>)}</ul>}</aside><article className="review-panel panel">{detail ? <MatchPanel detail={detail} onBind={bind} agentStatus={agentStatus} onUsage={refreshAgentUsage} onOpenSettings={() => setSettingsOpen(true)} /> : <div className="empty-review"><span className="target-glyph">⌖</span><h2>选择一场对局</h2><p>查看双方阵容，确认你的玩家后开始复盘。</p></div>}</article></section>
     <footer><span>VALCOACH // LOCAL MODE</span><span>{agentUsage ? `${agentUsage.total_tokens.toLocaleString()} TOKENS USED` : "NO AGENT USAGE"}</span></footer>
     {settingsOpen && <SettingsModal status={agentStatus} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setAgentStatus(next); setSettingsOpen(false); }} />}
   </main>;
@@ -151,12 +174,23 @@ function JobProgress({ job, bundle }: { job: Job; bundle: ReplayBundle | null })
 
 function MatchPanel({ detail, onBind, agentStatus, onUsage, onOpenSettings }: { detail: MatchDetail; onBind: (player: Player) => Promise<void>; agentStatus: AgentStatus; onUsage: () => Promise<void>; onOpenSettings: () => void }) {
   const [binding, setBinding] = useState<string | null>(null);
+  const [tab, setTab] = useState<"roster" | "rounds" | "coach">("roster");
+  const [compact, setCompact] = useState<CompactReplay | null>(null);
+  const [maps, setMaps] = useState<MapMeta[]>([]);
   const teamA = detail.players.filter((player) => player.team === "team_a");
   const teamB = detail.players.filter((player) => player.team === "team_b");
   const rosterReady = teamA.length === 5 && teamB.length === 5;
   const boundPlayer = detail.players.find((player) => player.is_bound);
   const choose = async (player: Player) => { setBinding(player.id); try { await onBind(player); } finally { setBinding(null); } };
-  return <><div className="review-heading"><div><span className="eyebrow">MATCH REVIEW</span><h1>{mapName(detail.metadata.map)}</h1><p>{formatDuration(detail.metadata.duration_ms)} · {detail.metadata.replay_id.slice(0, 13)}</p></div><span className="ready-badge"><i />数据就绪</span></div><section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name)}</span>}</div>{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} binding={binding} onChoose={choose} /></div>}</section><CoachPanel matchId={detail.id} status={agentStatus} playerSelected={!!boundPlayer} onUsage={onUsage} onOpenSettings={onOpenSettings} /></>;
+  useEffect(() => { api<CompactReplay>(`/api/matches/${detail.id}/compact`).then(setCompact).catch(() => setCompact(null)); }, [detail.id]);
+  useEffect(() => { api<MapMeta[]>("/api/maps").then(setMaps).catch(() => setMaps([])); }, []);
+  const mapMeta = maps.find((m) => m.map_url === mapName(detail.metadata.map));
+  return <><div className="review-heading"><div><span className="eyebrow">MATCH REVIEW</span><h1>{mapName(detail.metadata.map)}</h1><p>{formatDuration(detail.metadata.duration_ms)} · {detail.metadata.replay_id.slice(0, 13)}</p></div><span className="ready-badge"><i />数据就绪</span></div>
+    <nav className="tab-bar">{(["roster", "rounds", "coach"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t === "roster" ? "阵容" : t === "rounds" ? "回合" : "教练"}</button>)}</nav>
+    {tab === "roster" && <section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name)}</span>}</div>{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} binding={binding} onChoose={choose} /></div>}</section>}
+    {tab === "rounds" && (compact && mapMeta ? <MapViewer compact={compact} mapMeta={mapMeta} /> : <div className="empty-state"><p>正在加载紧凑回放数据…</p></div>)}
+    {tab === "coach" && <CoachPanel matchId={detail.id} status={agentStatus} playerSelected={!!boundPlayer} onUsage={onUsage} onOpenSettings={onOpenSettings} />}
+  </>;
 }
 
 function TeamRoster({ title, tone, players, binding, onChoose }: { title: string; tone: "red" | "blue"; players: Player[]; binding: string | null; onChoose: (player: Player) => Promise<void> }) {
@@ -164,11 +198,91 @@ function TeamRoster({ title, tone, players, binding, onChoose }: { title: string
 }
 
 function CoachPanel({ matchId, status, playerSelected, onUsage, onOpenSettings }: { matchId: string; status: AgentStatus; playerSelected: boolean; onUsage: () => Promise<void>; onOpenSettings: () => void }) {
-  const [question, setQuestion] = useState(""); const [messages, setMessages] = useState<AgentMessage[]>([]); const [pending, setPending] = useState(false); const [error, setError] = useState("");
+  const [question, setQuestion] = useState("");
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
   const refresh = useCallback(() => api<AgentMessage[]>(`/api/matches/${matchId}/coaching`).then(setMessages), [matchId]);
   useEffect(() => { refresh().catch(() => setMessages([])); }, [refresh]);
-  const ask = async (event: FormEvent) => { event.preventDefault(); if (!question.trim() || pending || !playerSelected) return; setPending(true); setError(""); try { await api(`/api/matches/${matchId}/coach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }); setQuestion(""); await refresh(); await onUsage(); } catch (reason) { setError(reason instanceof Error ? reason.message : "教练请求失败"); } finally { setPending(false); } };
-  return <section className="coach-section"><div className="section-title"><div><span className="eyebrow">AI COACH</span><h2>开始复盘</h2></div>{status.configured && <span className="model-label">{status.provider} / {status.model}</span>}</div>{!status.configured ? <div className="coach-gate"><span>◇</span><div><strong>先连接一个模型</strong><p>支持 OpenAI、Claude、DeepSeek 和兼容接口。</p></div><button className="secondary" onClick={onOpenSettings}>打开模型设置</button></div> : !playerSelected ? <div className="coach-gate"><span>◎</span><div><strong>先确认你的玩家</strong><p>选择上方阵容中的“这是我”，教练才会使用对应证据。</p></div></div> : <form onSubmit={ask} className="coach-form"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={4000} placeholder="问问这场对局里最值得改进的一件事…" /><button className="primary" disabled={pending || !question.trim()}>{pending ? "正在复盘…" : "发送给教练"}</button></form>}{error && <p className="notice error">{error}</p>}<div className="messages">{messages.map((message) => <section key={message.id} className={`message ${message.role}`}><header><strong>{message.role === "user" ? "你" : "VALCOACH"}</strong>{message.role === "assistant" && <small>{message.usage.total_tokens} tokens</small>}</header><p>{message.content}</p>{message.role === "assistant" && (message.evidence.length > 0 || message.limitations.length > 0) && <details><summary>查看依据与数据限制</summary><pre>{JSON.stringify({ evidence: message.evidence, limitations: message.limitations }, null, 2)}</pre></details>}</section>)}</div></section>;
+  const ask = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!question.trim() || pending || !playerSelected) return;
+    setPending(true);
+    setError("");
+    const sentQuestion = question;
+    try {
+      await api(`/api/matches/${matchId}/coach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: sentQuestion }) });
+      setQuestion("");
+      refresh().catch(() => undefined);
+      onUsage().catch(() => undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "教练请求失败，可以修改问题后重试。");
+    } finally {
+      setPending(false);
+    }
+  };
+  return <section className="coach-section"><div className="section-title"><div><span className="eyebrow">AI COACH</span><h2>开始复盘</h2></div>{status.configured && <span className="model-label">{status.provider} / {status.model}</span>}</div>{!status.configured ? <div className="coach-gate"><span>◇</span><div><strong>先连接一个模型</strong><p>支持 OpenAI、Claude、DeepSeek 和兼容接口。</p></div><button className="secondary" onClick={onOpenSettings}>打开模型设置</button></div> : !playerSelected ? <div className="coach-gate"><span>◎</span><div><strong>先确认你的玩家</strong><p>选择上方阵容中的"这是我"，教练才会使用对应证据。</p></div></div> : <form onSubmit={ask} className="coach-form"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={4000} placeholder="问问这场对局里最值得改进的一件事…" />{error && <p className="notice error"><strong>{error}</strong><span>可以修改问题后重新发送。</span></p>}<button className="primary" disabled={pending || !question.trim()}>{pending ? "正在复盘…" : "发送给教练"}</button></form>}<div className="messages">{messages.map((message) => <section key={message.id} className={`message ${message.role}`}><header><strong>{message.role === "user" ? "你" : "VALCOACH"}</strong>{message.role === "assistant" && <small>{message.usage.total_tokens} tokens</small>}</header>{message.role === "assistant" ? <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} /> : <p>{message.content}</p>}{message.role === "assistant" && (message.evidence.length > 0 || message.limitations.length > 0) && <details><summary>查看依据与数据限制</summary><pre>{JSON.stringify({ evidence: message.evidence, limitations: message.limitations }, null, 2)}</pre></details>}</section>)}</div></section>;
+}
+
+function MapViewer({ compact, mapMeta }: { compact: CompactReplay; mapMeta: MapMeta }) {
+  const [selectedRound, setSelectedRound] = useState(0);
+  const round = compact.rounds[selectedRound];
+  if (!round) return <div className="empty-state"><p>没有回合数据。</p></div>;
+  const callouts = mapMeta.callouts.filter((c) => c.region_name);
+  return <section className="map-viewer">
+    <div className="map-canvas-wrap">
+      <div className="map-round-selector">
+        {compact.rounds.map((r, i) => <button key={i} className={`round-chip ${i === selectedRound ? "active" : ""}`} onClick={() => setSelectedRound(i)}>{r.human_round}<small>{r.side ?? ""}</small></button>)}
+      </div>
+      <div className="map-canvas">
+        <svg viewBox="0 0 1024 1024" className="map-svg">
+          {callouts.map((c, i) => {
+            const x = c.location.x; const y = c.location.y;
+            return <g key={i}><circle cx={x} cy={y} r={3} fill="#3a4858" /><text x={x + 6} y={y + 3} fill="#5a6a7a" fontSize={10}>{c.region_name}</text></g>;
+          })}
+          {round.route.map((seg, i) => {
+            const fromArea = seg.from ? callouts.find((c) => c.region_name === seg.from) : null;
+            const toArea = seg.to ? callouts.find((c) => c.region_name === seg.to) : null;
+            const areaPt = seg.area ? callouts.find((c) => c.region_name === seg.area) : null;
+            const startX = fromArea?.location.x ?? areaPt?.location.x ?? 512;
+            const startY = fromArea?.location.y ?? areaPt?.location.y ?? 512;
+            const endX = toArea?.location.x ?? areaPt?.location.x ?? startX;
+            const endY = toArea?.location.y ?? areaPt?.location.y ?? startY;
+            return <g key={i}>
+              <line x1={startX} y1={startY} x2={endX} y2={endY} stroke={seg.alive ? "#53bce8" : "#ff4655"} strokeWidth={2} opacity={0.6} />
+              <circle cx={startX} cy={startY} r={4} fill="#53bce8" />
+              {seg.to && <circle cx={endX} cy={endY} r={4} fill="#56d6a0" />}
+            </g>;
+          })}
+          {round.combat.events.map((e, i) => {
+            const area = e.area ? callouts.find((c) => c.region_name === e.area) : null;
+            if (!area) return null;
+            const isKill = e.result === "kill";
+            return <g key={i}><circle cx={area.location.x} cy={area.location.y} r={isKill ? 7 : 5} fill={isKill ? "#ff4655" : "#f2c66d"} stroke="#fff" strokeWidth={1} /><text x={area.location.x + 9} y={area.location.y + 3} fill={isKill ? "#ff4655" : "#f2c66d"} fontSize={9} fontWeight="bold">{e.weapon ?? e.kind}{e.shots ? ` ×${e.shots}` : ""}</text></g>;
+          })}
+          {round.spike.map((s, i) => {
+            const area = s.area ? callouts.find((c) => c.region_name === s.area) : null;
+            if (!area) return null;
+            return <g key={i}><rect x={area.location.x - 5} y={area.location.y - 5} width={10} height={10} fill="#56d6a0" stroke="#fff" strokeWidth={1} /><text x={area.location.x + 8} y={area.location.y + 3} fill="#56d6a0" fontSize={9}>{s.kind}</text></g>;
+          })}
+        </svg>
+      </div>
+    </div>
+    <div className="map-round-detail">
+      <div className="round-header"><h3>{round.human_round} · {round.side ?? "未知"}</h3><span>{round.winner ? `胜方: ${round.winner}` : ""}</span></div>
+      <div className="round-stats">
+        <span>射击: {round.combat.totals.shots}</span><span>伤害: {round.combat.totals.damage}</span>
+        <span>击杀: {round.combat.totals.kills}</span><span>死亡: {round.combat.totals.deaths}</span>
+      </div>
+      <div className="round-route">
+        <h4>路线</h4>
+        {round.route.map((seg, i) => <div key={i} className="route-seg"><span className="route-time">{seg.start}</span><span>{seg.from ? `${seg.from} → ${seg.to}` : seg.area}</span><span className={`route-alive ${seg.alive ? "alive" : "dead"}`}>{seg.alive ? "存活" : "阵亡"}</span></div>)}
+      </div>
+      {round.combat.events.length > 0 && <div className="round-combat-list"><h4>战斗</h4>{round.combat.events.map((e, i) => <div key={i} className="combat-item"><span className="combat-time">{e.time}</span><span className="combat-kind">{e.kind}</span><span>{e.weapon}</span>{e.shots ? <span>×{e.shots}</span> : null}{e.damage ? <span>{e.damage} dmg</span> : null}{e.result === "kill" ? <strong className="kill-tag">击杀</strong> : null}<span className="combat-area">{e.area}</span></div>)}</div>}
+      {round.abilities.length > 0 && <div className="round-abilities"><h4>技能</h4>{round.abilities.map((a, i) => <div key={i} className="ability-item"><span>{a.time}</span><span>{a.ability}</span><span>{a.area}</span></div>)}</div>}
+      {round.spike.length > 0 && <div className="round-spike"><h4>Spike</h4>{round.spike.map((s, i) => <div key={i} className="spike-item"><span>{s.time}</span><span>{s.kind}</span><span>{s.area}</span></div>)}</div>}
+    </div>
+  </section>;
 }
 
 function SettingsModal({ status, onClose, onSaved }: { status: AgentStatus; onClose: () => void; onSaved: (status: AgentStatus) => void }) {
@@ -189,5 +303,58 @@ function SettingsModal({ status, onClose, onSaved }: { status: AgentStatus; onCl
 function mapName(path: string | null | undefined) { return path?.split("/").filter(Boolean).at(-1) ?? "未知地图"; }
 function formatDuration(milliseconds: number | null | undefined) { if (!milliseconds) return "时长未知"; const minutes = Math.floor(milliseconds / 60_000); const seconds = Math.floor((milliseconds % 60_000) / 1_000); return `${minutes}:${seconds.toString().padStart(2, "0")}`; }
 function displayAgent(codename: string | null) { if (!codename) return "未知特工"; return AGENT_NAMES[codename] ?? codename; }
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function renderMarkdown(markdown: string): string {
+  const codeBlocks: string[] = [];
+  let text = markdown.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _lang, code) => {
+    const placeholder = `\x00CODEBLOCK${codeBlocks.length}\x00`;
+    codeBlocks.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
+    return placeholder;
+  });
+  const inlineCodes: string[] = [];
+  text = text.replace(/`([^`]+)`/g, (_match, code) => {
+    const placeholder = `\x00INLINECODE${inlineCodes.length}\x00`;
+    inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
+    return placeholder;
+  });
+  text = escapeHtml(text);
+  const lines = text.split("\n");
+  const result: string[] = [];
+  let inList = false;
+  let inOrdered = false;
+  let paragraph: string[] = [];
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      const content = paragraph.join(" ").trim();
+      if (content) result.push(`<p>${content}</p>`);
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (inList) { result.push(inOrdered ? "</ol>" : "</ul>"); inList = false; inOrdered = false; }
+  };
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
+    const unorderedMatch = trimmed.match(/^[-*]\s+(.*)/);
+    const orderedMatch = trimmed.match(/^\d+\.\s+(.*)/);
+    if (headerMatch) { flushParagraph(); flushList(); const level = headerMatch[1].length; result.push(`<h${level}>${headerMatch[2]}</h${level}>`); }
+    else if (unorderedMatch) { flushParagraph(); if (!inList || inOrdered) { flushList(); result.push("<ul>"); inList = true; inOrdered = false; } result.push(`<li>${unorderedMatch[1]}</li>`); }
+    else if (orderedMatch) { flushParagraph(); if (!inList || !inOrdered) { flushList(); result.push("<ol>"); inList = true; inOrdered = true; } result.push(`<li>${orderedMatch[1]}</li>`); }
+    else if (trimmed === "") { flushParagraph(); flushList(); }
+    else { flushList(); paragraph.push(trimmed); }
+  }
+  flushParagraph();
+  flushList();
+  let html = result.join("\n");
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
+  inlineCodes.forEach((code, i) => { html = html.replace(`\x00INLINECODE${i}\x00`, code); });
+  codeBlocks.forEach((block, i) => { html = html.replace(`\x00CODEBLOCK${i}\x00`, block); });
+  return html;
+}
 
 createRoot(document.getElementById("root")!).render(<App />);

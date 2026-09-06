@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/domain",
+    "crates/maps",
     "crates/replay_adapter",
     "crates/vrf_probe",
     "crates/metrics",

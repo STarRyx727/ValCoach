@@ -18,6 +18,13 @@ use vrf_container::{
     parse_event_chunk, parse_known_event_payload, parse_preamble, parse_replay_data_meta,
 };
 
+const CHINA_BRANCH: &str = "++Ares-Core+release-china-13.05";
+const GLOBAL_BRANCH: &str = "++Ares-Core+release-13.05";
+const CHINA_BUILD_CHANGELIST: u32 = 5_350_608;
+const GLOBAL_BUILD_CHANGELIST: u32 = 5_350_494;
+const CHINA_HEADER_CHANGELIST: u32 = 2_152_834_256;
+const GLOBAL_HEADER_CHANGELIST: u32 = 2_152_834_142;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbedRegion {
@@ -107,26 +114,86 @@ pub struct ProbePlayerLoadout {
     pub character_id: String,
 }
 
+pub fn convert_china_to_global(data: &[u8]) -> Result<Vec<u8>, ProbeError> {
+    let china_branch_bytes = CHINA_BRANCH.as_bytes();
+    let global_branch_bytes = GLOBAL_BRANCH.as_bytes();
+    let china_fstring_len = (china_branch_bytes.len() as i32 + 1).to_le_bytes();
+    let global_fstring_len = (global_branch_bytes.len() as i32 + 1).to_le_bytes();
+
+    let mut branch_offset = None;
+    let mut offset = 0;
+    while offset + 4 + china_branch_bytes.len() < data.len() {
+        if data[offset..offset + 4] == china_fstring_len
+            && &data[offset + 4..offset + 4 + china_branch_bytes.len()] == china_branch_bytes
+            && data[offset + 4 + china_branch_bytes.len()] == 0
+        {
+            branch_offset = Some(offset);
+            break;
+        }
+        offset += 1;
+    }
+    let branch_offset = branch_offset.ok_or(ProbeError::Conversion(
+        "China branch FString not found in replay file".to_owned(),
+    ))?;
+
+    let china_branch_end = branch_offset + 4 + china_branch_bytes.len() + 1;
+    let global_branch_end = branch_offset + 4 + global_branch_bytes.len() + 1;
+
+    let mut output =
+        Vec::with_capacity(data.len() - (china_branch_end - branch_offset) + (global_branch_end - branch_offset));
+    output.extend_from_slice(&data[..branch_offset]);
+    output.extend_from_slice(&global_fstring_len);
+    output.extend_from_slice(global_branch_bytes);
+    output.push(0);
+    output.extend_from_slice(&data[china_branch_end..]);
+
+    let china_build_cl_bytes = CHINA_BUILD_CHANGELIST.to_le_bytes();
+    let global_build_cl_bytes = GLOBAL_BUILD_CHANGELIST.to_le_bytes();
+    let china_header_cl_bytes = CHINA_HEADER_CHANGELIST.to_le_bytes();
+    let global_header_cl_bytes = GLOBAL_HEADER_CHANGELIST.to_le_bytes();
+
+    replace_u32_in_range(&mut output, &china_build_cl_bytes, &global_build_cl_bytes, 0, 700);
+    replace_u32_in_range(&mut output, &china_header_cl_bytes, &global_header_cl_bytes, 0, 700);
+
+    Ok(output)
+}
+
+fn replace_u32_in_range(
+    data: &mut [u8],
+    needle: &[u8; 4],
+    replacement: &[u8; 4],
+    start: usize,
+    end: usize,
+) {
+    let search_end = end.min(data.len()).saturating_sub(3);
+    let mut offset = start;
+    while offset < search_end {
+        if &data[offset..offset + 4] == needle {
+            data[offset..offset + 4].copy_from_slice(replacement);
+        }
+        offset += 1;
+    }
+}
+
 pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {
     let data = fs::read(path).map_err(|source| ProbeError::Read {
         path: path.to_path_buf(),
         source,
     })?;
-    let preamble = parse_preamble(&data)?;
+    probe_bytes(&data)
+}
+
+pub fn probe_bytes(data: &[u8]) -> Result<ProbeReport, ProbeError> {
+    let preamble = parse_preamble(data)?;
     let branch = preamble.header.replay_version.branch.clone();
     let region = match branch.as_str() {
         "++Ares-Core+release-13.05" => ProbedRegion::Global,
         "++Ares-Core+release-china-13.05" => ProbedRegion::China,
         _ => ProbedRegion::Unknown,
     };
-    let filename = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("unknown.vrf")
-        .to_owned();
     let source = SourceIdentity {
-        filename,
-        sha256: hex::encode(Sha256::digest(&data)),
+        filename: String::new(),
+        sha256: hex::encode(Sha256::digest(data)),
         size_bytes: data.len() as u64,
     };
     let version = &preamble.header.replay_version;
@@ -156,7 +223,7 @@ pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {
     let mut server_event_counts = BTreeMap::new();
     let mut integrity = ProbeIntegrity::default();
     let mut server_events = Vec::new();
-    let mut iterator = ChunkIterator::new(&data, preamble.remaining_offset);
+    let mut iterator = ChunkIterator::new(data, preamble.remaining_offset);
 
     while let Some(chunk) = iterator.next_chunk()? {
         let end = chunk.data_offset + chunk.size_in_bytes as usize;
@@ -220,6 +287,59 @@ pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {
         server_events,
         player_loadouts: extract_player_loadouts(&preamble.header.game_specific_data),
     })
+}
+
+pub fn probe_bytes_lenient(data: &[u8]) -> Result<ProbeReport, ProbeError> {
+    match probe_bytes(data) {
+        Ok(report) => Ok(report),
+        Err(full_error) => {
+            let preamble = parse_preamble(data).map_err(|_| full_error)?;
+            let branch = preamble.header.replay_version.branch.clone();
+            let region = match branch.as_str() {
+                "++Ares-Core+release-13.05" => ProbedRegion::Global,
+                "++Ares-Core+release-china-13.05" => ProbedRegion::China,
+                _ => ProbedRegion::Unknown,
+            };
+            let source = SourceIdentity {
+                filename: String::new(),
+                sha256: hex::encode(Sha256::digest(data)),
+                size_bytes: data.len() as u64,
+            };
+            let version = &preamble.header.replay_version;
+            let replay = ReplayBuildIdentity {
+                internal_replay_id: preamble.info.friendly_name.clone(),
+                region,
+                branch,
+                build_changelist: preamble.info.changelist,
+                header_changelist: version.changelist,
+                version: format!("{}.{}.{}", version.major, version.minor, version.patch),
+                duration_ms: preamble.info.length_in_ms,
+                map_asset_path: preamble
+                    .header
+                    .level_names_and_times
+                    .first()
+                    .map(|(name, _)| name.clone()),
+                network_version: preamble.header.network_version,
+                network_checksum: preamble.header.network_checksum,
+                engine_network_protocol_version: preamble.header.engine_network_protocol_version,
+                ue4_version: preamble.header.ue4_version,
+                ue5_version: preamble.header.ue5_version,
+                package_version_license: preamble.header.package_version_license,
+                platform: preamble.header.platform.clone(),
+                header_trailing_bytes: preamble.header.trailing_bytes,
+            };
+            Ok(ProbeReport {
+                schema_version: 1,
+                source,
+                replay,
+                chunks: ChunkCounts::default(),
+                server_event_counts: BTreeMap::new(),
+                integrity: ProbeIntegrity::default(),
+                server_events: Vec::new(),
+                player_loadouts: extract_player_loadouts(&preamble.header.game_specific_data),
+            })
+        }
+    }
 }
 
 fn extract_player_loadouts(entries: &[String]) -> Vec<ProbePlayerLoadout> {
@@ -294,6 +414,8 @@ pub enum ProbeError {
     Serialization(#[from] serde_json::Error),
     #[error("VRF container corruption or unsupported container layout: {0}")]
     Container(#[from] vrf_container::ContainerError),
+    #[error("replay conversion failed: {0}")]
+    Conversion(String),
 }
 
 #[cfg(test)]

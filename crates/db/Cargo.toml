@@ -15,4 +15,5 @@ tokio.workspace = true
 tokio-util.workspace = true
 uuid.workspace = true
 valcoach-domain = { path = "../domain" }
+valcoach-maps = { path = "../maps" }
 valcoach-replay-adapter = { path = "../replay_adapter" }

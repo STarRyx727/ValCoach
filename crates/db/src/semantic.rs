@@ -115,6 +115,7 @@ struct TrackPoint {
 #[derive(Debug, Default)]
 pub(super) struct SemanticBuilder {
     match_id: String,
+    map_asset_path: Option<String>,
     pub rounds: Vec<SemanticRound>,
     parser_drafts: Vec<CombatDraft>,
     server_drafts: Vec<ServerDraft>,
@@ -211,6 +212,10 @@ impl SemanticBuilder {
                 if switched { "attack" } else { "defense" }.to_owned();
         }
         Ok(builder)
+    }
+
+    pub fn set_map(&mut self, map_asset_path: &str) {
+        self.map_asset_path = Some(map_asset_path.to_owned());
     }
 
     pub fn observe_event(&mut self, event: &GenericEvent, source_row: u64) {
@@ -373,7 +378,7 @@ impl SemanticBuilder {
     ) -> MovementEnrichment {
         self.diagnostics.raw_movement_rows += 1;
         let round_no = self.round_for_time(sample.timestamp_ms);
-        let area = split_area(&sample.position).map(str::to_owned);
+        let area = resolve_area(&sample.position, self.map_asset_path.as_deref(), None);
         if area.is_some() {
             self.diagnostics.resolved_area_rows += 1;
         } else {
@@ -704,8 +709,19 @@ fn clean_hit_region(value: &str) -> String {
         .to_owned()
 }
 
-/// Deterministic first-pass calibration for Split/Bonsai world coordinates.
-/// The zones intentionally stop at site approaches so spawn/off-map samples remain unresolved.
+/// Resolve area from world coordinates using the map registry.
+/// Falls back to hardcoded Split zones if no map data is loaded.
+pub(super) fn resolve_area(position: &Vector3, map_asset_path: Option<&str>, registry: Option<&valcoach_maps::MapRegistry>) -> Option<String> {
+    if let (Some(registry), Some(map_path)) = (registry, map_asset_path)
+        && let Some(area) = registry.resolve_area(map_path, position)
+    {
+        return Some(area);
+    }
+    split_area(position).map(str::to_owned)
+}
+
+/// Legacy deterministic first-pass calibration for Split/Bonsai world coordinates.
+/// Used as fallback when no Valorant-API map data is available.
 pub(super) fn split_area(position: &Vector3) -> Option<&'static str> {
     let (x, y, z) = (position.x, position.y, position.z);
     if !(-10_500.0..=-2_500.0).contains(&y) {

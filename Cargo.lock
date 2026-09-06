@@ -2583,6 +2583,7 @@ dependencies = [
  "tokio-util",
  "uuid",
  "valcoach-domain",
+ "valcoach-maps",
  "valcoach-replay-adapter",
 ]
 
@@ -2592,6 +2593,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "valcoach-maps"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "valcoach-domain",
 ]
 
 [[package]]

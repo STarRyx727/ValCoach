@@ -36,7 +36,7 @@ const MAX_REPLAY_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 pub struct JobManager {
     database: Database,
     parser_source: ValorantReplayParserSource,
-    data_directory: PathBuf,
+    pub data_directory: PathBuf,
     controls: Arc<Mutex<HashMap<String, JobControl>>>,
 }
 
@@ -361,8 +361,10 @@ impl JobManager {
                         &probe_directory,
                         &probe,
                         "pending",
-                        "China 13.05 common container and server timeline detected",
-                        valcoach_domain::ReplayCapabilities::china_container_only(),
+                        "China 13.05 detected; attempting full parse with alias transform",
+                        valcoach_domain::ReplayCapabilities::global_fixture(
+                            valcoach_domain::CapabilityLevel::Partial,
+                        ),
                         BundleRecordCounts {
                             server_events: probe.chunks.events,
                             ..BundleRecordCounts::default()
@@ -401,7 +403,7 @@ impl JobManager {
                 &job_id,
                 "parsing",
                 if region == ReplayRegion::China {
-                    "Building trusted common server timeline"
+                    "Attempting China 13.05 full parse with alias transform"
                 } else {
                     "Running local replay parser"
                 },
@@ -410,29 +412,54 @@ impl JobManager {
             )
             .await?;
             let (mut replay, parser_diagnostics) = if region == ReplayRegion::China {
-                let parser_events = probe_directory.join("parser_events.ndjson");
-                let movement = probe_directory.join("movement.ndjson");
-                tokio::fs::write(&parser_events, b"").await?;
-                tokio::fs::write(&movement, b"").await?;
-                (
-                    valcoach_domain::ParsedReplay {
-                        metadata: valcoach_domain::ReplayMetadata {
-                            replay_id: probe.replay.internal_replay_id.clone(),
-                            branch: Some(probe.replay.branch.clone()),
-                            map: probe.replay.map_asset_path.clone(),
-                            duration_ms: Some(i64::from(probe.replay.duration_ms)),
+                let parser_result = self
+                    .parser_source
+                    .ingest(
+                        ReplayInput::Vrf {
+                            path: replay_path.clone(),
+                            region,
+                            output_directory: output_directory.clone(),
                         },
-                        bundle: valcoach_domain::ParsedBundle {
-                            events_path: parser_events,
-                            movement_path: movement,
-                            server_events_path: Some(probe_directory.join("server_events.ndjson")),
-                        },
-                        source_name: "valcoach_common_probe".to_owned(),
-                        capabilities: valcoach_domain::ReplayCapabilities::china_container_only(),
-                        summary: valcoach_domain::ParsedReplaySummary::default(),
-                    },
-                    None,
-                )
+                        cancel.clone(),
+                    )
+                    .await;
+                match parser_result {
+                    Ok(mut replay) => {
+                        let diagnostics = read_parser_diagnostics(&output_directory).await?;
+                        promote_parser_artifacts(&mut replay, &output_directory, &probe_directory).await?;
+                        (replay, Some(diagnostics))
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            job_id = %job_id,
+                            error = %error,
+                            "C# parser failed on China replay; falling back to partial import"
+                        );
+                        let parser_events = probe_directory.join("parser_events.ndjson");
+                        let movement = probe_directory.join("movement.ndjson");
+                        tokio::fs::write(&parser_events, b"").await?;
+                        tokio::fs::write(&movement, b"").await?;
+                        (
+                            valcoach_domain::ParsedReplay {
+                                metadata: valcoach_domain::ReplayMetadata {
+                                    replay_id: probe.replay.internal_replay_id.clone(),
+                                    branch: Some(probe.replay.branch.clone()),
+                                    map: probe.replay.map_asset_path.clone(),
+                                    duration_ms: Some(i64::from(probe.replay.duration_ms)),
+                                },
+                                bundle: valcoach_domain::ParsedBundle {
+                                    events_path: parser_events,
+                                    movement_path: movement,
+                                    server_events_path: Some(probe_directory.join("server_events.ndjson")),
+                                },
+                                source_name: "valcoach_common_probe".to_owned(),
+                                capabilities: valcoach_domain::ReplayCapabilities::china_container_only(),
+                                summary: valcoach_domain::ParsedReplaySummary::default(),
+                            },
+                            None,
+                        )
+                    }
+                }
             } else {
                 let mut replay = self
                     .parser_source
@@ -456,9 +483,11 @@ impl JobManager {
             write_bundle_manifest(
                 &probe_directory,
                 &probe,
-                if region == ReplayRegion::China { "partial" } else { "complete" },
-                if region == ReplayRegion::China {
+                if region == ReplayRegion::China && replay.summary.event_count == 0 { "partial" } else { "complete" },
+                if region == ReplayRegion::China && replay.summary.event_count == 0 {
                     "China 13.05 server timeline and roster metadata imported; ReplayData transform remains fail-closed"
+                } else if region == ReplayRegion::China {
+                    "China 13.05 full parse via Global 13.05 alias transform"
                 } else {
                     "Verified ValorantReplayParser 13.05 export using the valcoach semantic profile"
                 },
@@ -499,7 +528,9 @@ impl JobManager {
             self.database
                 .insert_parsed_replay_with_records(&user_id, &match_id, &replay, cancel.clone())
                 .await?;
-            if region == ReplayRegion::China {
+            let alias_full_parse = region == ReplayRegion::China
+                && replay.summary.event_count > 0;
+            if region == ReplayRegion::China && !alias_full_parse {
                 let players = probe
                     .player_loadouts
                     .iter()
@@ -526,7 +557,7 @@ impl JobManager {
             if cancel.is_cancelled() {
                 return Err(JobManagerError::Cancelled);
             }
-            if region != ReplayRegion::China {
+            if region != ReplayRegion::China || alias_full_parse {
                 self.compute_movement_metrics(&user_id, &match_id, &cancel).await?;
             }
             self.transition(
