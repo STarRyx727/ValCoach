@@ -203,8 +203,9 @@ fn is_valid_ue_header(data: &[u8]) -> bool {
 
 /// Score how "valid" a decoded buffer looks.
 /// Higher score = more likely correct.
+/// This is a heuristic grammar oracle, not a hard validator.
 pub fn score_decoded(data: &[u8]) -> u32 {
-    if data.is_empty() {
+    if data.len() < 4 {
         return 0;
     }
     let mut score = 0u32;
@@ -215,29 +216,40 @@ pub fn score_decoded(data: &[u8]) -> u32 {
         return 0;
     }
 
-    // First byte small (bunch header fields)
-    if data[0] < 64 {
-        score += 10;
-    } else if data[0] < 128 {
-        score += 5;
+    // Avoid all-zero or all-FF
+    let all_zero = data.iter().take(32).all(|&b| b == 0);
+    let all_ff = data.iter().take(32).all(|&b| b == 0xff);
+    if all_zero || all_ff {
+        return 0;
     }
 
     // Some bytes should be zero (padding, zero-length fields)
     let zero_count = data.iter().take(32).filter(|&&b| b == 0).count();
-    if zero_count > 0 && zero_count < 16 {
+    if (2..=20).contains(&zero_count) {
         score += 5;
     }
 
-    // Bytes should have reasonable distribution (not all high bits set)
-    let high_bit_count = data.iter().take(32).filter(|&&b| b > 0x80).count();
-    if high_bit_count < 20 {
-        score += 5;
-    }
-
-    // Check for common UE patterns: low-value bytes in first 8
-    let low_count = data.iter().take(8).filter(|&&b| b < 0x40).count();
-    if low_count >= 4 {
+    // Byte value entropy: decoded UE data has a mix of high and low bytes.
+    let high_count = data.iter().take(64).filter(|&&b| b >= 0x80).count();
+    if (10..=50).contains(&high_count) {
         score += 10;
+    } else if high_count > 50 {
+        score += 2;
+    }
+
+    // Good variety in first 32 bytes
+    let mut seen = std::collections::HashSet::new();
+    for &b in data.iter().take(32) {
+        seen.insert(b);
+    }
+    if seen.len() >= 10 && seen.len() <= 28 {
+        score += 5;
+    }
+
+    // Some low-value bytes (RepLayout handles are typically 0x00-0x1F)
+    let small_count = data.iter().take(16).filter(|&&b| b < 0x40).count();
+    if small_count >= 4 {
+        score += 5;
     }
 
     score

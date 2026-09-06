@@ -12,3 +12,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 vrf-container = { git = "https://github.com/yakisoba0728/vrfkit.git", rev = "a73ee3aab474e38af4de7157fb8d94b34bee0963" }
+
+[[bin]]
+name = "china_transform_search"
+path = "src/bin/china_transform_search.rs"
