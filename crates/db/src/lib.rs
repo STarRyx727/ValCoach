@@ -1,5 +1,7 @@
 //! SQLite persistence for ValCoach-owned stable domain data.
 
+mod semantic;
+
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     str::FromStr,
@@ -7,6 +9,7 @@ use std::{
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use sqlx::{QueryBuilder, Sqlite, Transaction};
 use thiserror::Error;
@@ -15,6 +18,8 @@ use valcoach_domain::{
     MovementSample, ParsedReplay, ParsedReplaySummary, ReplayCapabilities, ReplayMetadata, Vector3,
 };
 use valcoach_replay_adapter::{NormalizedRecord, ParsedBundleSource, ReplaySourceError};
+
+use semantic::SemanticBuilder;
 
 const INSERT_BATCH_SIZE: usize = 500;
 
@@ -100,6 +105,23 @@ pub struct AgentUsageSummary {
     pub total_tokens: u64,
     pub cost_microusd: u64,
     pub priced_requests: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SemanticContext {
+    pub context: Value,
+    pub evidence: Vec<Value>,
+    pub limitations: Vec<String>,
+}
+
+fn collect_evidence(events: &[Value], target: &mut Vec<Value>) {
+    for event in events {
+        if let Some(items) = event.get("evidence").and_then(Value::as_array) {
+            target.extend(items.iter().cloned());
+        } else if let Some(item) = event.get("evidence") {
+            target.push(item.clone());
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -310,6 +332,8 @@ impl Database {
         let mut roster = ReplayRoster::default();
         let mut finalized_roster = None;
         let mut counts = PersistedRecordCounts::default();
+        let mut semantic =
+            SemanticBuilder::load(match_id, replay.bundle.server_events_path.as_deref()).await?;
         let records = ParsedBundleSource.records(replay.bundle.clone(), cancel);
         futures_util::pin_mut!(records);
 
@@ -317,6 +341,7 @@ impl Database {
             match record? {
                 NormalizedRecord::Event(event) => {
                     roster.observe(&event);
+                    semantic.observe_event(&event, counts.event_count + 1);
                     events.push(PersistedEvent {
                         timestamp_ms: event.timestamp_ms,
                         event_type: event.event_type,
@@ -331,9 +356,17 @@ impl Database {
                 NormalizedRecord::Movement(sample) => {
                     let finalized =
                         finalized_roster.get_or_insert_with(|| roster.finalize(match_id));
+                    if counts.movement_count == 0 {
+                        semantic.resolve_players(finalized);
+                    }
                     let player_id = sample
                         .character_net_guid
                         .and_then(|guid| finalized.pawn_to_player.get(&guid).cloned());
+                    let enrichment = semantic.enrich_movement(
+                        &sample,
+                        player_id.as_deref(),
+                        counts.movement_count + 1,
+                    );
                     movement.push(PersistedMovement {
                         player_id,
                         timestamp_ms: sample.timestamp_ms,
@@ -343,6 +376,12 @@ impl Database {
                         velocity_x: sample.velocity.as_ref().map(|velocity| velocity.x),
                         velocity_y: sample.velocity.as_ref().map(|velocity| velocity.y),
                         velocity_z: sample.velocity.as_ref().map(|velocity| velocity.z),
+                        round_no: enrichment.round_no,
+                        yaw: sample.yaw,
+                        pitch: sample.pitch,
+                        alive: enrichment.alive,
+                        area: enrichment.area,
+                        source_row: enrichment.source_row,
                     });
                     counts.movement_count += 1;
                     if movement.len() >= INSERT_BATCH_SIZE {
@@ -354,6 +393,12 @@ impl Database {
         flush_events(&mut transaction, match_id, &mut events).await?;
         flush_movement(&mut transaction, match_id, &mut movement).await?;
         let finalized_roster = finalized_roster.unwrap_or_else(|| roster.finalize(match_id));
+        if counts.movement_count == 0 {
+            semantic.resolve_players(&finalized_roster);
+        }
+        semantic.set_duration(replay.metadata.duration_ms);
+        semantic.finish();
+        insert_semantic_replay(&mut transaction, match_id, &semantic).await?;
         insert_replay_players(&mut transaction, match_id, finalized_roster.players).await?;
 
         if counts.event_count != replay.summary.event_count
@@ -434,6 +479,50 @@ impl Database {
             .collect())
     }
 
+    pub async fn insert_probe_players(
+        &self,
+        user_id: &str,
+        match_id: &str,
+        players: &[(String, String)],
+    ) -> Result<(), DatabaseError> {
+        let owns_match = sqlx::query_scalar::<_, i64>(
+            "SELECT EXISTS(SELECT 1 FROM matches WHERE id = ? AND user_id = ?)",
+        )
+        .bind(match_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?
+            != 0;
+        if !owns_match {
+            return Err(DatabaseError::MatchNotFound);
+        }
+        for (index, (subject, agent_name)) in players.iter().take(10).enumerate() {
+            sqlx::query(
+                r#"INSERT INTO players
+                   (id, match_id, stable_player_id, display_name, team, agent_name, player_slot,
+                    player_state_net_guid, character_net_guids_json)
+                   VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, '[]')"#,
+            )
+            .bind(format!("{match_id}:player:{subject}"))
+            .bind(match_id)
+            .bind(subject)
+            .bind(if index < 5 { "team_a" } else { "team_b" })
+            .bind(agent_name)
+            .bind(index as i64)
+            .execute(&self.pool)
+            .await?;
+        }
+        if let Some(mut diagnostics) = self.semantic_diagnostics(match_id).await? {
+            diagnostics["players"]["resolved"] = json!(players.len().min(10));
+            sqlx::query("UPDATE semantic_diagnostics SET value_json = ? WHERE match_id = ?")
+                .bind(serde_json::to_string(&diagnostics)?)
+                .bind(match_id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
+    }
+
     pub async fn movement_for_player_for_user(
         &self,
         user_id: &str,
@@ -448,11 +537,15 @@ impl Database {
             Option<f64>,
             Option<f64>,
             Option<f64>,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
         )>(
             r#"
             SELECT movement_samples.timestamp_ms, movement_samples.x, movement_samples.y,
                    movement_samples.z, movement_samples.velocity_x, movement_samples.velocity_y,
-                   movement_samples.velocity_z
+                   movement_samples.velocity_z, movement_samples.round_no,
+                   movement_samples.alive, movement_samples.area
             FROM movement_samples
             JOIN matches ON matches.id = movement_samples.match_id
             WHERE movement_samples.match_id = ? AND movement_samples.player_id = ? AND matches.user_id = ?
@@ -467,7 +560,18 @@ impl Database {
         Ok(rows
             .into_iter()
             .map(
-                |(timestamp_ms, x, y, z, velocity_x, velocity_y, velocity_z)| MovementSample {
+                |(
+                    timestamp_ms,
+                    x,
+                    y,
+                    z,
+                    velocity_x,
+                    velocity_y,
+                    velocity_z,
+                    round_no,
+                    alive,
+                    area,
+                )| MovementSample {
                     timestamp_ms,
                     packet_id: None,
                     actor_net_guid: None,
@@ -477,6 +581,11 @@ impl Database {
                         (Some(x), Some(y), Some(z)) => Some(Vector3 { x, y, z }),
                         _ => None,
                     },
+                    yaw: None,
+                    pitch: None,
+                    round_no: round_no.map(|value| value as u32),
+                    alive: alive.map(|value| value != 0),
+                    area,
                 },
             )
             .collect())
@@ -562,6 +671,453 @@ impl Database {
             .collect())
     }
 
+    pub async fn semantic_diagnostics(
+        &self,
+        match_id: &str,
+    ) -> Result<Option<Value>, DatabaseError> {
+        let value = sqlx::query_scalar::<_, String>(
+            "SELECT value_json FROM semantic_diagnostics WHERE match_id = ?",
+        )
+        .bind(match_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        value
+            .map(|json| serde_json::from_str(&json))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Deterministic Agent retrieval tools. The returned context contains only the rounds
+    /// selected by the user's question scope, never the raw replay dump.
+    pub async fn build_semantic_coaching_context(
+        &self,
+        user_id: &str,
+        match_id: &str,
+        player_id: &str,
+        requested_round: Option<u32>,
+        requested_area: Option<&str>,
+        requested_side: Option<&str>,
+    ) -> Result<SemanticContext, DatabaseError> {
+        let player = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, String)>(
+            r#"SELECT stable_player_id, team, agent_name, character_net_guids_json
+               FROM players JOIN matches ON matches.id = players.match_id
+               WHERE players.id = ? AND players.match_id = ? AND matches.user_id = ?"#,
+        )
+        .bind(player_id)
+        .bind(match_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(DatabaseError::PlayerNotFound)?;
+
+        let all_players = sqlx::query_as::<
+            _,
+            (
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+            ),
+        >(
+            "SELECT id, stable_player_id, team, agent_name, player_slot FROM players WHERE match_id = ? ORDER BY team, player_slot, id",
+        )
+        .bind(match_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(|row| {
+            json!({"id":row.0,"subject":row.1,"team":row.2,"agent":row.3,"slot":row.4})
+        })
+        .collect::<Vec<_>>();
+
+        let rounds = self.get_rounds(match_id).await?;
+        let selected_numbers = if let Some(round_no) = requested_round {
+            vec![round_no]
+        } else if let Some(area) = requested_area {
+            self.find_rounds_by_area(
+                match_id,
+                player_id,
+                area,
+                requested_side,
+                player.1.as_deref(),
+            )
+            .await?
+        } else {
+            let mut active = sqlx::query_scalar::<_, i64>(
+                r#"SELECT DISTINCT round_no FROM combat_events
+                   WHERE match_id = ? AND (attacker_player_id = ? OR victim_player_id = ?)
+                   ORDER BY round_no"#,
+            )
+            .bind(match_id)
+            .bind(player_id)
+            .bind(player_id)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|value| value as u32)
+            .collect::<Vec<_>>();
+            if active.len() > 8 {
+                active = active.split_off(active.len() - 8);
+            }
+            if active.is_empty() {
+                active = rounds
+                    .iter()
+                    .rev()
+                    .take(8)
+                    .filter_map(|round| {
+                        round
+                            .get("round_no")
+                            .and_then(Value::as_u64)
+                            .map(|value| value as u32)
+                    })
+                    .collect();
+                active.reverse();
+            }
+            active
+        };
+
+        let mut round_contexts = Vec::new();
+        let mut evidence = Vec::new();
+        let area_occupancy = if let Some(area) = requested_area {
+            self.get_area_occupancy(
+                match_id,
+                player_id,
+                area,
+                requested_side,
+                player.1.as_deref(),
+            )
+            .await?
+        } else {
+            Vec::new()
+        };
+        for round_no in selected_numbers.into_iter().take(8) {
+            let movement = self
+                .get_player_movement(match_id, player_id, round_no)
+                .await?;
+            let combat = self
+                .get_combat_events(match_id, player_id, round_no)
+                .await?;
+            let abilities = self
+                .get_ability_events(match_id, player_id, round_no)
+                .await?;
+            let spike = self.get_spike_events(match_id, round_no).await?;
+            let mut nearby_players_at_combat = Vec::new();
+            for event in combat.iter().take(16) {
+                let selected_is_attacker =
+                    event.get("attacker").and_then(Value::as_str) == Some(player_id);
+                let position_key = if selected_is_attacker {
+                    "attacker_position"
+                } else {
+                    "victim_position"
+                };
+                let Some(position) = event.get(position_key) else {
+                    continue;
+                };
+                let (Some(timestamp_ms), Some(x), Some(y), Some(z)) = (
+                    event.get("time_ms").and_then(Value::as_i64),
+                    position.get("x").and_then(Value::as_f64),
+                    position.get("y").and_then(Value::as_f64),
+                    position.get("z").and_then(Value::as_f64),
+                ) else {
+                    continue;
+                };
+                nearby_players_at_combat.push(json!({
+                    "time_ms": timestamp_ms,
+                    "origin": position,
+                    "radius_units": 2500,
+                    "players": self.get_nearby_players(match_id, timestamp_ms, x, y, z, 2500.0).await?
+                }));
+            }
+            collect_evidence(&combat, &mut evidence);
+            collect_evidence(&abilities, &mut evidence);
+            collect_evidence(&spike, &mut evidence);
+            collect_evidence(&movement, &mut evidence);
+            if let Some(round) = rounds.iter().find(|round| {
+                round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64)
+            }) {
+                collect_evidence(std::slice::from_ref(round), &mut evidence);
+            }
+            round_contexts.push(json!({
+                "round": rounds.iter().find(|round| round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64)),
+                "movement_area_timeline": movement,
+                "combat": combat,
+                "abilities": abilities,
+                "spike": spike,
+                "nearby_players_at_combat": nearby_players_at_combat,
+            }));
+        }
+        evidence.sort_by_key(Value::to_string);
+        evidence.dedup();
+        let diagnostics = self.semantic_diagnostics(match_id).await?;
+        let mut limitations = Vec::new();
+        if round_contexts.is_empty() {
+            limitations
+                .push("No semantic rounds matched the requested area/side scope.".to_owned());
+        }
+        if diagnostics
+            .as_ref()
+            .and_then(|value| value.pointer("/movement/semantic_rows"))
+            .and_then(Value::as_u64)
+            == Some(0)
+        {
+            limitations.push(
+                "This replay branch has no decoded movement, aim, alive-state, or area evidence."
+                    .to_owned(),
+            );
+        }
+        if diagnostics
+            .as_ref()
+            .and_then(|value| value.pointer("/combat/shots"))
+            .and_then(Value::as_u64)
+            == Some(0)
+        {
+            limitations.push(
+                "This replay branch has no parser-decoded shot or damage evidence.".to_owned(),
+            );
+        }
+        Ok(SemanticContext {
+            context: json!({
+                "question_scope": { "round": requested_round, "area": requested_area, "side": requested_side },
+                "player": { "id": player_id, "subject": player.0, "team": player.1, "agent": player.2,
+                    "character_net_guids": serde_json::from_str::<Value>(&player.3).unwrap_or_else(|_| json!([])) },
+                "players": all_players,
+                "all_rounds": rounds,
+                "area_occupancy": area_occupancy,
+                "relevant_rounds": round_contexts,
+                "semantic_diagnostics": diagnostics,
+                "tools_used": ["get_players", "get_rounds", "find_rounds_by_area", "get_round_timeline",
+                    "get_player_movement", "get_combat_events", "get_ability_events", "get_spike_events",
+                    "get_area_occupancy", "get_nearby_players"]
+            }),
+            evidence,
+            limitations,
+        })
+    }
+
+    async fn get_rounds(&self, match_id: &str) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (i64, Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>, Option<String>, String)>(
+            "SELECT round_no, start_ms, buy_end_ms, end_ms, team_a_side, team_b_side, winner_team, evidence_json FROM rounds WHERE match_id = ? ORDER BY round_no",
+        )
+        .bind(match_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                json!({ "round_no": row.0, "start_ms": row.1, "buy_end_ms": row.2,
+            "end_ms": row.3, "team_a_side": row.4, "team_b_side": row.5, "winner_team": row.6,
+            "evidence": serde_json::from_str::<Value>(&row.7).unwrap_or_else(|_| json!([])) })
+            })
+            .collect())
+    }
+
+    async fn find_rounds_by_area(
+        &self,
+        match_id: &str,
+        player_id: &str,
+        area: &str,
+        side: Option<&str>,
+        team: Option<&str>,
+    ) -> Result<Vec<u32>, DatabaseError> {
+        let area_pattern = if matches!(area, "A" | "B") {
+            format!("{area} %")
+        } else {
+            area.to_owned()
+        };
+        let side_column = if team == Some("team_b") {
+            "rounds.team_b_side"
+        } else {
+            "rounds.team_a_side"
+        };
+        let sql = format!(
+            "SELECT DISTINCT movement_samples.round_no FROM movement_samples JOIN rounds ON rounds.match_id = movement_samples.match_id AND rounds.round_no = movement_samples.round_no WHERE movement_samples.match_id = ? AND movement_samples.player_id = ? AND movement_samples.area LIKE ? AND (? IS NULL OR {side_column} = ?) ORDER BY movement_samples.round_no"
+        );
+        Ok(sqlx::query_scalar::<_, i64>(&sql)
+            .bind(match_id)
+            .bind(player_id)
+            .bind(area_pattern)
+            .bind(side)
+            .bind(side)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|value| value as u32)
+            .collect())
+    }
+
+    async fn get_player_movement(
+        &self,
+        match_id: &str,
+        player_id: &str,
+        round_no: u32,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (i64, f64, f64, f64, Option<f64>, Option<f64>, Option<i64>, Option<String>, Option<i64>)>(
+            "SELECT timestamp_ms, x, y, z, yaw, pitch, alive, area, source_row FROM movement_samples WHERE match_id = ? AND player_id = ? AND round_no = ? ORDER BY timestamp_ms, id",
+        ).bind(match_id).bind(player_id).bind(round_no).fetch_all(&self.pool).await?;
+        let mut result = Vec::new();
+        let mut last_area: Option<String> = None;
+        let mut last_time = i64::MIN / 2;
+        for row in rows {
+            if row.7 != last_area || row.0 - last_time >= 5_000 {
+                last_area = row.7.clone();
+                last_time = row.0;
+                result.push(json!({ "time_ms": row.0, "position": {"x":row.1,"y":row.2,"z":row.3},
+                    "yaw": row.4, "pitch": row.5, "alive": row.6.map(|value| value != 0), "area": row.7,
+                    "evidence": {"match_id":match_id,"round_no":round_no,"timestamp_ms":row.0,
+                        "player_id":player_id,"evidence_type":"movement","source_file":"movement.ndjson",
+                        "source_row":row.8,"source_event_type":"movement_sample"} }));
+            }
+        }
+        Ok(result)
+    }
+
+    async fn get_area_occupancy(
+        &self,
+        match_id: &str,
+        player_id: &str,
+        area: &str,
+        side: Option<&str>,
+        team: Option<&str>,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let area_pattern = if matches!(area, "A" | "B") {
+            format!("{area} %")
+        } else {
+            area.to_owned()
+        };
+        let side_column = if team == Some("team_b") {
+            "rounds.team_b_side"
+        } else {
+            "rounds.team_a_side"
+        };
+        let sql = format!(
+            "SELECT movement_samples.round_no, COUNT(*), MIN(movement_samples.timestamp_ms), MAX(movement_samples.timestamp_ms), {side_column} FROM movement_samples JOIN rounds ON rounds.match_id = movement_samples.match_id AND rounds.round_no = movement_samples.round_no WHERE movement_samples.match_id = ? AND movement_samples.player_id = ? AND movement_samples.area LIKE ? AND (? IS NULL OR {side_column} = ?) GROUP BY movement_samples.round_no, {side_column} ORDER BY movement_samples.round_no"
+        );
+        let rows = sqlx::query_as::<_, (i64, i64, i64, i64, Option<String>)>(&sql)
+            .bind(match_id)
+            .bind(player_id)
+            .bind(area_pattern)
+            .bind(side)
+            .bind(side)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                json!({"round_no":row.0,"sample_count":row.1,"first_seen_ms":row.2,
+                    "last_seen_ms":row.3,"side":row.4})
+            })
+            .collect())
+    }
+
+    async fn get_nearby_players(
+        &self,
+        match_id: &str,
+        timestamp_ms: i64,
+        x: f64,
+        y: f64,
+        z: f64,
+        radius: f64,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows =
+            sqlx::query_as::<_, (String, i64, f64, f64, f64, Option<String>, Option<String>)>(
+                r#"SELECT movement_samples.player_id, movement_samples.timestamp_ms,
+                      movement_samples.x, movement_samples.y, movement_samples.z,
+                      players.team, players.agent_name
+               FROM movement_samples JOIN players ON players.id = movement_samples.player_id
+               WHERE movement_samples.match_id = ? AND movement_samples.player_id IS NOT NULL
+                 AND movement_samples.timestamp_ms BETWEEN ? AND ?
+                 AND ((movement_samples.x - ?) * (movement_samples.x - ?)
+                    + (movement_samples.y - ?) * (movement_samples.y - ?)
+                    + (movement_samples.z - ?) * (movement_samples.z - ?)) <= ?
+               ORDER BY ABS(movement_samples.timestamp_ms - ?), movement_samples.player_id"#,
+            )
+            .bind(match_id)
+            .bind(timestamp_ms - 500)
+            .bind(timestamp_ms + 500)
+            .bind(x)
+            .bind(x)
+            .bind(y)
+            .bind(y)
+            .bind(z)
+            .bind(z)
+            .bind(radius * radius)
+            .bind(timestamp_ms)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut seen = BTreeSet::new();
+        Ok(rows
+            .into_iter()
+            .filter(|row| seen.insert(row.0.clone()))
+            .map(|row| {
+                let distance =
+                    ((row.2 - x).powi(2) + (row.3 - y).powi(2) + (row.4 - z).powi(2)).sqrt();
+                json!({"player_id":row.0,"time_ms":row.1,"position":{"x":row.2,"y":row.3,"z":row.4},
+                    "distance_units":distance,"team":row.5,"agent":row.6,
+                    "evidence":{"match_id":match_id,"timestamp_ms":row.1,"player_id":row.0,
+                        "evidence_type":"nearby_movement","source_file":"movement.ndjson",
+                        "source_event_type":"movement_sample"}})
+            })
+            .collect())
+    }
+
+    async fn get_combat_events(
+        &self,
+        match_id: &str,
+        player_id: &str,
+        round_no: u32,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (i64,String,Option<String>,Option<String>,Option<f64>,i64,Option<String>,Option<String>,Option<String>,String,Option<f64>,Option<f64>,Option<f64>,Option<f64>,Option<f64>,Option<f64>)>(
+            "SELECT timestamp_ms, kind, attacker_player_id, victim_player_id, damage, killed, weapon, hit_region, area, evidence_json, attacker_x, attacker_y, attacker_z, victim_x, victim_y, victim_z FROM combat_events WHERE match_id = ? AND round_no = ? AND (attacker_player_id = ? OR victim_player_id = ?) ORDER BY timestamp_ms",
+        ).bind(match_id).bind(round_no).bind(player_id).bind(player_id).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                json!({"time_ms":row.0,"kind":row.1,"attacker":row.2,"victim":row.3,
+            "damage":row.4,"killed":row.5 != 0,"weapon":row.6,"hit_region":row.7,"area":row.8,
+            "evidence":serde_json::from_str::<Value>(&row.9).unwrap_or_else(|_| json!([])),
+            "attacker_position":{"x":row.10,"y":row.11,"z":row.12},
+            "victim_position":{"x":row.13,"y":row.14,"z":row.15}})
+            })
+            .collect())
+    }
+
+    async fn get_ability_events(
+        &self,
+        match_id: &str,
+        player_id: &str,
+        round_no: u32,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (i64,Option<String>,Option<String>,String)>(
+            "SELECT timestamp_ms, ability_name, area, evidence_json FROM ability_events WHERE match_id = ? AND round_no = ? AND player_id = ? ORDER BY timestamp_ms",
+        ).bind(match_id).bind(round_no).bind(player_id).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                json!({"time_ms":row.0,"ability":row.1,"area":row.2,
+            "evidence":serde_json::from_str::<Value>(&row.3).unwrap_or_else(|_| json!([]))})
+            })
+            .collect())
+    }
+
+    async fn get_spike_events(
+        &self,
+        match_id: &str,
+        round_no: u32,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (i64,String,Option<String>,Option<f64>,Option<f64>,Option<f64>,Option<String>,String)>(
+            "SELECT timestamp_ms, kind, player_id, x, y, z, area, evidence_json FROM spike_events WHERE match_id = ? AND round_no = ? ORDER BY timestamp_ms",
+        ).bind(match_id).bind(round_no).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                json!({"time_ms":row.0,"kind":row.1,"player":row.2,
+            "position":{"x":row.3,"y":row.4,"z":row.5},"area":row.6,
+            "evidence":serde_json::from_str::<Value>(&row.7).unwrap_or_else(|_| json!([]))})
+            })
+            .collect())
+    }
+
     pub async fn bind_player_to_account(
         &self,
         user_id: &str,
@@ -586,6 +1142,18 @@ impl Database {
         let account_id = format!("{user_id}:global:{stable_player_id}");
 
         sqlx::query(
+            r#"DELETE FROM valorant_accounts
+               WHERE user_id = ? AND subject_id IN (
+                   SELECT stable_player_id FROM players
+                   WHERE match_id = ? AND stable_player_id IS NOT NULL
+               )"#,
+        )
+        .bind(user_id)
+        .bind(match_id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
             r#"
             INSERT INTO valorant_accounts (id, user_id, region, subject_id, display_name)
             VALUES (?, ?, 'global', ?, NULL)
@@ -606,6 +1174,32 @@ impl Database {
             subject_id: Some(stable_player_id),
             display_name: None,
         })
+    }
+
+    pub async fn unbind_player_from_account(
+        &self,
+        user_id: &str,
+        match_id: &str,
+        player_id: &str,
+    ) -> Result<(), DatabaseError> {
+        let result = sqlx::query(
+            r#"DELETE FROM valorant_accounts
+               WHERE user_id = ? AND subject_id = (
+                   SELECT players.stable_player_id
+                   FROM players JOIN matches ON matches.id = players.match_id
+                   WHERE players.id = ? AND players.match_id = ? AND matches.user_id = ?
+               )"#,
+        )
+        .bind(user_id)
+        .bind(player_id)
+        .bind(match_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(DatabaseError::PlayerNotFound);
+        }
+        Ok(())
     }
 
     pub async fn find_bound_player_for_match(
@@ -873,6 +1467,7 @@ pub struct PersistedRecordCounts {
 struct ReplayRoster {
     player_states: BTreeMap<u64, ReplayPlayerDraft>,
     pawn_to_state: HashMap<u64, u64>,
+    pawn_agents: HashMap<u64, String>,
 }
 
 #[derive(Debug, Default)]
@@ -890,16 +1485,32 @@ struct ReplayPlayerIdentity {
     team: String,
     agent_name: Option<String>,
     player_slot: i64,
+    player_state_net_guid: u64,
+    character_net_guids: Vec<u64>,
 }
 
 #[derive(Debug, Default)]
 struct FinalizedRoster {
     players: Vec<ReplayPlayerIdentity>,
     pawn_to_player: HashMap<u64, String>,
+    state_to_player: HashMap<u64, String>,
 }
 
 impl ReplayRoster {
     fn observe(&mut self, event: &valcoach_domain::GenericEvent) {
+        if event.event_type == "actor_spawned" {
+            if let (Some(actor_guid), Some(name)) = (
+                event.actor_net_guid,
+                event
+                    .raw
+                    .get("replication_class_path")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(agent_codename),
+            ) {
+                self.pawn_agents.insert(actor_guid, name);
+            }
+            return;
+        }
         if event.event_type != "export_group_received" {
             return;
         }
@@ -969,9 +1580,17 @@ impl ReplayRoster {
                 id: id.clone(),
                 stable_player_id: subject.clone(),
                 team: team.to_owned(),
-                agent_name: draft.agent_name.clone(),
+                agent_name: draft.agent_name.clone().or_else(|| {
+                    draft
+                        .pawn_guids
+                        .iter()
+                        .find_map(|guid| self.pawn_agents.get(guid).cloned())
+                }),
                 player_slot: slot,
+                player_state_net_guid: state_guid,
+                character_net_guids: draft.pawn_guids.iter().copied().collect(),
             });
+            finalized.state_to_player.insert(state_guid, id.clone());
             for pawn_guid in &draft.pawn_guids {
                 finalized.pawn_to_player.insert(*pawn_guid, id.clone());
             }
@@ -1006,6 +1625,12 @@ struct PersistedMovement {
     velocity_x: Option<f64>,
     velocity_y: Option<f64>,
     velocity_z: Option<f64>,
+    round_no: Option<u32>,
+    yaw: Option<f64>,
+    pitch: Option<f64>,
+    alive: Option<bool>,
+    area: Option<String>,
+    source_row: u64,
 }
 
 async fn flush_events(
@@ -1041,7 +1666,7 @@ async fn flush_movement(
     }
     let rows = std::mem::take(records);
     let mut query = QueryBuilder::<Sqlite>::new(
-        "INSERT INTO movement_samples (match_id, player_id, timestamp_ms, x, y, z, velocity_x, velocity_y, velocity_z) ",
+        "INSERT INTO movement_samples (match_id, player_id, timestamp_ms, x, y, z, velocity_x, velocity_y, velocity_z, round_no, yaw, pitch, alive, area, source_file, source_row) ",
     );
     query.push_values(rows, |mut row, sample| {
         row.push_bind(match_id)
@@ -1052,7 +1677,14 @@ async fn flush_movement(
             .push_bind(sample.z)
             .push_bind(sample.velocity_x)
             .push_bind(sample.velocity_y)
-            .push_bind(sample.velocity_z);
+            .push_bind(sample.velocity_z)
+            .push_bind(sample.round_no)
+            .push_bind(sample.yaw)
+            .push_bind(sample.pitch)
+            .push_bind(sample.alive)
+            .push_bind(sample.area)
+            .push_bind("movement.ndjson")
+            .push_bind(sample.source_row as i64);
     });
     query.build().execute(&mut **transaction).await?;
     Ok(())
@@ -1067,7 +1699,7 @@ async fn insert_replay_players(
         return Ok(());
     }
     let mut query = QueryBuilder::<Sqlite>::new(
-        "INSERT INTO players (id, match_id, stable_player_id, display_name, team, agent_name, player_slot) ",
+        "INSERT INTO players (id, match_id, stable_player_id, display_name, team, agent_name, player_slot, player_state_net_guid, character_net_guids_json) ",
     );
     query.push_values(players, |mut row, player| {
         row.push_bind(player.id)
@@ -1076,9 +1708,127 @@ async fn insert_replay_players(
             .push_bind(Option::<String>::None)
             .push_bind(player.team)
             .push_bind(player.agent_name)
-            .push_bind(player.player_slot);
+            .push_bind(player.player_slot)
+            .push_bind(player.player_state_net_guid.to_string())
+            .push_bind(
+                serde_json::to_string(&player.character_net_guids).expect("GUID list serializes"),
+            );
     });
     query.build().execute(&mut **transaction).await?;
+    Ok(())
+}
+
+async fn insert_semantic_replay(
+    transaction: &mut Transaction<'_, Sqlite>,
+    match_id: &str,
+    semantic: &SemanticBuilder,
+) -> Result<(), DatabaseError> {
+    for round in &semantic.rounds {
+        sqlx::query(
+            r#"INSERT INTO rounds
+               (id, match_id, round_no, start_ms, buy_end_ms, end_ms, team_a_side, team_b_side,
+                winner_team, evidence_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(format!("{match_id}:round:{}", round.round_no))
+        .bind(match_id)
+        .bind(round.round_no)
+        .bind(round.start_ms)
+        .bind(round.buy_end_ms)
+        .bind(round.end_ms)
+        .bind(&round.team_a_side)
+        .bind(&round.team_b_side)
+        .bind(&round.winner_team)
+        .bind(serde_json::to_string(&round.evidence)?)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    for event in &semantic.combat {
+        let attacker = event.attacker_position.as_ref();
+        let victim = event.victim_position.as_ref();
+        sqlx::query(
+            r#"INSERT INTO combat_events
+               (match_id, round_no, timestamp_ms, kind, attacker_player_id, victim_player_id,
+                damage, killed, weapon, hit_region, attacker_x, attacker_y, attacker_z,
+                victim_x, victim_y, victim_z, area, evidence_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(match_id)
+        .bind(event.round_no)
+        .bind(event.timestamp_ms)
+        .bind(&event.kind)
+        .bind(&event.attacker_player_id)
+        .bind(&event.victim_player_id)
+        .bind(event.damage)
+        .bind(event.killed)
+        .bind(&event.weapon)
+        .bind(&event.hit_region)
+        .bind(attacker.map(|point| point.x))
+        .bind(attacker.map(|point| point.y))
+        .bind(attacker.map(|point| point.z))
+        .bind(victim.map(|point| point.x))
+        .bind(victim.map(|point| point.y))
+        .bind(victim.map(|point| point.z))
+        .bind(&event.area)
+        .bind(serde_json::to_string(&event.evidence)?)
+        .execute(&mut **transaction)
+        .await?;
+        if event.kind == "shot" {
+            sqlx::query(
+                "INSERT INTO shots (id, match_id, player_id, timestamp_ms, payload_json) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(match_id)
+            .bind(&event.attacker_player_id)
+            .bind(event.timestamp_ms)
+            .bind(serde_json::to_string(event)?)
+            .execute(&mut **transaction)
+            .await?;
+        }
+    }
+    for event in &semantic.spike {
+        let position = event.position.as_ref();
+        sqlx::query(
+            r#"INSERT INTO spike_events
+               (match_id, round_no, timestamp_ms, kind, player_id, x, y, z, area, evidence_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(match_id)
+        .bind(event.round_no)
+        .bind(event.timestamp_ms)
+        .bind(&event.kind)
+        .bind(&event.player_id)
+        .bind(position.map(|point| point.x))
+        .bind(position.map(|point| point.y))
+        .bind(position.map(|point| point.z))
+        .bind(&event.area)
+        .bind(serde_json::to_string(&event.evidence)?)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    for event in &semantic.abilities {
+        sqlx::query(
+            r#"INSERT INTO ability_events
+               (id, match_id, player_id, timestamp_ms, payload_json, round_no, ability_name, area, evidence_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(match_id)
+        .bind(&event.player_id)
+        .bind(event.timestamp_ms)
+        .bind(serde_json::to_string(event)?)
+        .bind(event.round_no)
+        .bind(&event.ability_name)
+        .bind(&event.area)
+        .bind(serde_json::to_string(&event.evidence)?)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    sqlx::query("INSERT INTO semantic_diagnostics (match_id, value_json) VALUES (?, ?)")
+        .bind(match_id)
+        .bind(serde_json::to_string(&semantic.diagnostics_json())?)
+        .execute(&mut **transaction)
+        .await?;
     Ok(())
 }
 
@@ -1098,6 +1848,8 @@ pub enum DatabaseError {
     Sqlx(#[from] sqlx::Error),
     #[error("failed to serialize stable domain data: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("failed to read semantic replay evidence: {0}")]
+    Io(#[from] std::io::Error),
     #[error(transparent)]
     Adapter(#[from] ReplaySourceError),
     #[error(
@@ -1203,6 +1955,7 @@ mod tests {
             bundle: ParsedBundle {
                 events_path: "events.ndjson".into(),
                 movement_path: "movement.ndjson".into(),
+                server_events_path: None,
             },
             source_name: "parsed_bundle".to_owned(),
             capabilities: ReplayCapabilities::global_fixture(

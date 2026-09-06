@@ -3,7 +3,8 @@ param(
     [string]$ParserDirectory = (Join-Path $PSScriptRoot '..\.external\ValorantReplayParser'),
     [switch]$Refresh,
     [switch]$SkipTests,
-    [switch]$ApplyCn1300Alias
+    [switch]$ApplyCn1300Alias,
+    [switch]$ApplyCn1305Alias
 )
 
 $ErrorActionPreference = 'Stop'
@@ -95,6 +96,23 @@ if ($ApplyCn1300Alias) {
     git -C $parserPath apply $aliasPatch
     if ($LASTEXITCODE -ne 0) { throw 'Failed to apply CN 13.00 alias patch.' }
     Write-Warning 'Applied experimental CN 13.00 alias patch. Validate a real replay before using its output.'
+}
+
+if ($ApplyCn1305Alias) {
+    $cn1305Patch = Join-Path $PSScriptRoot '..\patches\valorant_parser_cn_13_05_alias.patch'
+    git -C $parserPath apply --reverse --check $cn1305Patch 2>$null
+    $cn1305AlreadyApplied = $LASTEXITCODE -eq 0
+    if (-not $cn1305AlreadyApplied) {
+        git -C $parserPath apply --check $cn1305Patch
+        if ($LASTEXITCODE -ne 0) {
+            throw 'CN 13.05 alias patch cannot be applied cleanly; inspect the pinned Parser checkout.'
+        }
+        git -C $parserPath apply $cn1305Patch
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to apply CN 13.05 alias patch.' }
+        Write-Warning 'Applied experimental CN 13.05 alias; it must pass full-file validation before production use.'
+    } else {
+        Write-Host 'Experimental CN 13.05 alias is already applied.'
+    }
 }
 
 $sha | Set-Content -LiteralPath (Join-Path $parserPath 'VALCOACH_TESTED_COMMIT.txt') -NoNewline

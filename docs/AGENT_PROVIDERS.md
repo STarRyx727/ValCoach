@@ -11,7 +11,9 @@ equivalent server environment fallback:
 | `deepseek` | Chat Completions | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
 | `openai-compatible` | Chat Completions | required override | `VALCOACH_LLM_API_KEY` |
 
-`VALCOACH_LLM_MODEL` is always explicit; ValCoach does not silently substitute a newer model.
+`VALCOACH_LLM_MODEL` is explicit. For the DeepSeek provider only, the common mistaken value
+`DeepSeek` (the provider name) is normalized to the concrete `deepseek-chat` model ID; all other
+model IDs are preserved exactly.
 `VALCOACH_LLM_BASE_URL` can override the endpoint. Non-loopback endpoints must use HTTPS.
 `VALCOACH_LLM_MAX_OUTPUT_TOKENS` defaults to 4096. OpenAI's limit includes both visible output and
 reasoning tokens, so a very small limit can finish before the model produces an answer.
@@ -31,8 +33,9 @@ API keys supplied through the web UI are sent once to the local backend and held
 memory; they disappear when the server restarts or when the user clears the setting. Environment
 keys are also held only in memory. Keys are never returned to the browser, stored in conversations,
 usage rows, databases, logs, Replay Bundles, or Git. The model receives the
-stable match metadata, capability map, compact deterministic metrics, selected-player evidence and
-limitations—not the `.vrf` file or full raw NDJSON.
+stable match metadata, capability map, scoped rounds, area/movement timelines, combat, abilities,
+Spike facts, nearby-player snapshots, compact deterministic metrics and limitations—not the `.vrf`
+file or full raw NDJSON.
 
 Every prompt requires capability checks, separates observations from recommendations, and forbids
 inventing missing facts. A user must bind an observed player before personalized movement metrics

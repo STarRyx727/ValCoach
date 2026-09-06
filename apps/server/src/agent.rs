@@ -200,6 +200,25 @@ impl AgentService {
             );
             Vec::new()
         };
+        let scope = question_scope(question);
+        let semantic_context = if let Some(player_id) = selected_player.as_deref() {
+            let semantic = self
+                .database
+                .build_semantic_coaching_context(
+                    user_id,
+                    match_id,
+                    player_id,
+                    scope.round_no,
+                    scope.area.as_deref(),
+                    scope.side.as_deref(),
+                )
+                .await?;
+            evidence.extend(semantic.evidence);
+            limitations.extend(semantic.limitations);
+            Some(semantic.context)
+        } else {
+            None
+        };
         limitations.sort();
         limitations.dedup();
         evidence.sort_by_key(|left| left.to_string());
@@ -212,6 +231,7 @@ impl AgentService {
             "summary": replay.summary,
             "selected_player_id": selected_player,
             "deterministic_metrics": selected_metrics,
+            "semantic_replay": semantic_context,
             "limitations": limitations,
         });
         let input = format!(
@@ -248,6 +268,63 @@ impl AgentService {
     }
 }
 
+#[derive(Debug, Default)]
+struct QuestionScope {
+    round_no: Option<u32>,
+    area: Option<String>,
+    side: Option<String>,
+}
+
+fn question_scope(question: &str) -> QuestionScope {
+    let lower = question.to_ascii_lowercase();
+    let area = if question.contains("A点") || question.contains("A 区") || lower.contains("a site")
+    {
+        Some("A".to_owned())
+    } else if question.contains("B点") || question.contains("B 区") || lower.contains("b site") {
+        Some("B".to_owned())
+    } else if question.contains("中路") || lower.contains("mid") {
+        Some("Mid".to_owned())
+    } else {
+        None
+    };
+    let side =
+        if question.contains("防守") || lower.contains("defense") || lower.contains("defence") {
+            Some("defense".to_owned())
+        } else if question.contains("进攻") || lower.contains("attack") {
+            Some("attack".to_owned())
+        } else {
+            None
+        };
+    let round_no = parse_round_number(question, &lower);
+    QuestionScope {
+        round_no,
+        area,
+        side,
+    }
+}
+
+fn parse_round_number(question: &str, lower: &str) -> Option<u32> {
+    if let Some(start) = question.find('第') {
+        let tail = &question[start + '第'.len_utf8()..];
+        let digits = tail
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        if tail[digits.len()..].starts_with("回合") {
+            return digits.parse().ok();
+        }
+    }
+    if let Some(start) = lower.find("round") {
+        let digits = lower[start + 5..]
+            .trim_start()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        return digits.parse().ok();
+    }
+    None
+}
+
 #[derive(Clone)]
 struct LlmProvider {
     client: Client,
@@ -263,7 +340,7 @@ struct LlmProvider {
 impl LlmProvider {
     fn from_settings(settings: AgentSettingsRequest) -> Result<Self, AgentError> {
         let kind = ProviderKind::parse(&settings.provider)?;
-        let model = settings.model.trim().to_owned();
+        let model = normalize_model(kind, &settings.model);
         let api_key = settings.api_key.trim().to_owned();
         if model.is_empty() || model.len() > 200 {
             return Err(AgentError::Configuration(
@@ -482,6 +559,15 @@ fn normalize_base_url(kind: ProviderKind, base_url: &str) -> String {
         .strip_suffix(endpoint)
         .unwrap_or(base_url)
         .to_owned()
+}
+
+fn normalize_model(kind: ProviderKind, model: &str) -> String {
+    let model = model.trim();
+    if kind == ProviderKind::DeepSeek && model.eq_ignore_ascii_case("deepseek") {
+        "deepseek-chat".to_owned()
+    } else {
+        model.to_owned()
+    }
 }
 
 fn provider_error_detail(bytes: &[u8]) -> String {
@@ -939,9 +1025,21 @@ mod tests {
 
     use super::{
         AgentError, AgentService, AgentSettingsRequest, AgentTokenUsage, LlmProvider, ProviderKind,
-        agent_api_error, estimate_cost, normalize_base_url, parse_anthropic_response,
-        parse_chat_completion, parse_openai_response,
+        agent_api_error, estimate_cost, normalize_base_url, normalize_model,
+        parse_anthropic_response, parse_chat_completion, parse_openai_response,
     };
+
+    #[test]
+    fn deepseek_provider_name_is_normalized_to_chat_model() {
+        assert_eq!(
+            normalize_model(ProviderKind::DeepSeek, "DeepSeek"),
+            "deepseek-chat"
+        );
+        assert_eq!(
+            normalize_model(ProviderKind::DeepSeek, "deepseek-reasoner"),
+            "deepseek-reasoner"
+        );
+    }
 
     #[test]
     fn provider_payloads_report_text_and_tokens() {
@@ -1065,6 +1163,7 @@ mod tests {
                     bundle: ParsedBundle {
                         events_path: "events.ndjson".into(),
                         movement_path: "movement.ndjson".into(),
+                        server_events_path: None,
                     },
                     source_name: "test".to_owned(),
                     capabilities: ReplayCapabilities::global_fixture(CapabilityLevel::Partial),

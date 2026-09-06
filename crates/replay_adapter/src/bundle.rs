@@ -256,6 +256,11 @@ fn parse_movement(path: &Path, line: u64, text: &str) -> Result<MovementSample, 
             .and_then(Value::as_u64),
         position,
         velocity,
+        yaw: raw.get("yaw").and_then(Value::as_f64),
+        pitch: raw.get("pitch").and_then(Value::as_f64),
+        round_no: None,
+        alive: None,
+        area: None,
     })
 }
 
@@ -371,6 +376,7 @@ mod tests {
                 ReplayInput::ParsedBundle(ParsedBundle {
                     events_path,
                     movement_path,
+                    server_events_path: None,
                 }),
                 CancellationToken::new(),
             )

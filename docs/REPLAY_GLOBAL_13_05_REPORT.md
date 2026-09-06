@@ -11,7 +11,7 @@
 - Ran the unmodified `log` and `export` commands against the real Global fixture.
 - Parsed the common container and every server Event through the Rust probe.
 - Added and tested the output-only `valcoach` profile, then validated the complete Bundle.
-- Ran the website job through probe, Parser, normalization, SQLite persistence, metrics, and `ready`.
+- Ran the website job through probe, Parser, normalization, Semantic IR, SQLite persistence and `ready`.
 
 ## Commands
 
@@ -47,35 +47,42 @@ cargo test -p valcoach-server 13_05_job -- --ignored --nocapture
 - Bundle validator: PASS with exactly 244 server events, 138,065 parser events and 165,047 movement
   rows.
 - Website integration: PASS; job reached `ready`, all 303,112 normalized rows matched the manifest,
-  and deterministic movement metrics were generated. Test wall time was 43.66 seconds.
+  and deterministic replay semantics were generated. Exact target Sova values: 16,762 movement
+  samples, 304 shots, 18 kills and 17 deaths. Scoped A-defense retrieval returned round timelines,
+  combat evidence, area occupancy and nearby-player snapshots.
+- Semantic golden values: 20 rounds, 161 kills/deaths, 45 ultimate events, 14 plants, 2 defuses
+  and 1 explosion; every semantic event stores its source file, source row/type and timestamp.
+- Roster: exactly 5v5 with no unknown agent. The former B-side unknown pawn `1090` is resolved from
+  `/Game/Characters/AggroBot/AggroBot_PC` to Gekko.
 
 ## Files changed
 
 - `crates/vrf_probe/`: common container and server Event probe.
 - `crates/replay_adapter/src/parser_source.rs`: exact Global routing and compact Parser invocation.
 - `apps/server/src/jobs.rs`: probe-first job, Bundle generation, explicit unsupported status.
-- `crates/db/src/lib.rs`: WAL/multi-connection file database so status reads do not wait for ingest.
+- `crates/db/src/lib.rs`, `crates/db/src/semantic.rs`: roster identity mapping, Semantic IR,
+  evidence-linked retrieval, WAL/multi-connection persistence.
 - `patches/valorant_parser_valcoach_profile.patch`: reproducible output-only Parser patch.
 - `scripts/smoke_global_13_05.ps1`, summarizer and validator.
 
 ## Evidence
 
-Generated evidence is under `artifacts/replay/global_13_05*` and
-`artifacts/smoke-global-13.05`; artifacts and replay files are intentionally Git-ignored. The
-checked report and scripts contain no replay payload.
+Generated evidence is Git-ignored and may be cleaned after regression counts are recorded. The
+original replay fixture remains local and intact; checked reports and scripts contain no payload.
 
 ## Known limitations
 
-- The Parser reports 148 recoverable partial field errors and many undecoded groups; therefore
-  actor, identity, combat, ability and game-state capabilities remain partial or unsupported.
+- The Parser reports 148 recoverable partial field errors and many undecoded groups. Semantic facts
+  are therefore capability-gated and evidence-linked; missing fields remain unknown rather than zero.
 - Compact movement is sampled at 10 Hz per observed character GUID. The 64 observed character
   GUIDs are source entities, not proof of 64 human players.
-- Map coordinates remain raw until a separately validated map transform exists.
+- Split area names use a deterministic first-pass world-coordinate resolver calibrated against this
+  fixture. Broader map geometry and line-of-sight remain future work.
 
 ## Decision
 
-- PASS — Milestone 1 (Global Parser Ready) and the Global half of the unified layer are complete.
+- PASS — Global Parser and first Semantic Pipeline milestone are complete.
 
 ## Next
 
-- Keep Global production enabled and capability-gated. Do not wait for China transform research.
+- Expand map geometry and ability taxonomy without weakening current evidence or capability gates.

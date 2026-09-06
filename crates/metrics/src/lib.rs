@@ -53,6 +53,12 @@ pub fn summarize_movement(
 
     let path_distance_raw_units = ordered
         .windows(2)
+        .filter(|pair| {
+            pair[0].round_no == pair[1].round_no
+                && pair[0].alive.unwrap_or(true)
+                && pair[1].alive.unwrap_or(true)
+                && pair[1].timestamp_ms - pair[0].timestamp_ms <= 10_000
+        })
         .map(|pair| distance(&pair[0].position, &pair[1].position))
         .sum();
     let velocities: Vec<f64> = ordered
@@ -92,6 +98,9 @@ pub fn summarize_movement(
                     timestamp_ms: Some(first.timestamp_ms),
                     player_id: Some(player_id.to_owned()),
                     evidence_type: "movement_sample".to_owned(),
+                    source_file: None,
+                    source_row: None,
+                    source_event_type: None,
                 },
                 EvidenceRef {
                     match_id: match_id.to_owned(),
@@ -99,6 +108,9 @@ pub fn summarize_movement(
                     timestamp_ms: Some(last.timestamp_ms),
                     player_id: Some(player_id.to_owned()),
                     evidence_type: "movement_sample".to_owned(),
+                    source_file: None,
+                    source_row: None,
+                    source_event_type: None,
                 },
             ],
         }),
@@ -139,6 +151,11 @@ mod tests {
             character_net_guid: Some(7),
             position: Vector3 { x, y: 0.0, z: 0.0 },
             velocity: velocity.map(|x| Vector3 { x, y: 0.0, z: 0.0 }),
+            yaw: None,
+            pitch: None,
+            round_no: Some(1),
+            alive: Some(true),
+            area: None,
         }
     }
 

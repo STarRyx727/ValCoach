@@ -101,6 +101,25 @@ pub async fn bind_player(
         })
 }
 
+pub async fn unbind_player(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Path(match_id): Path<String>,
+    Json(request): Json<BindPlayerRequest>,
+) -> Result<axum::http::StatusCode, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    state
+        .auth
+        .database
+        .unbind_player_from_account(&user_id, &match_id, &request.player_id)
+        .await
+        .map_err(|error| match error {
+            valcoach_db::DatabaseError::PlayerNotFound => AuthApiError::unauthorized(),
+            other => AuthApiError::internal(other.to_string()),
+        })?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 fn metric_view(metric: MatchMetricRecord) -> Result<MetricView, AuthApiError> {
     let value = serde_json::from_str(&metric.value_json).map_err(|error| {
         AuthApiError::internal(format!("stored metric is invalid JSON: {error}"))

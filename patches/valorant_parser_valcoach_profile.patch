@@ -48,7 +48,7 @@ diff --git a/src/CliReader/JsonExport/ReplayEventJsonWriter.cs b/src/CliReader/J
 index fa6744f..2c2aa4d 100644
 --- a/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
 +++ b/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
-@@ -158,6 +158,19 @@ internal sealed class ReplayEventJsonWriter
+@@ -158,6 +158,21 @@ internal sealed class ReplayEventJsonWriter
          writer.WriteEndObject();
      }
 
@@ -61,6 +61,8 @@ index fa6744f..2c2aa4d 100644
 +        writer.WriteNumber("shooter_character_net_guid", movement.ShooterCharacterNetGuidValue);
 +        writer.WritePropertyName("position");
 +        ReplayJsonNormalizer.WriteVector(writer, movement.Move.Position);
++        writer.WriteNumber("yaw", movement.Move.Yaw);
++        writer.WriteNumber("pitch", movement.Move.Pitch);
 +        WriteNullableValue(writer, "velocity", movement.Move.Velocity);
 +        writer.WriteEndObject();
 +    }

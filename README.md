@@ -4,8 +4,8 @@
 
 ValCoach keeps replay files local, probes every `.vrf` through a common Rust container layer,
 converts supported Global 13.05 payloads through a pinned `ValorantReplayParser`, normalizes a
-versioned Replay Bundle in Rust, persists it in SQLite, and exposes capability-gated deterministic
-metrics to a local web UI.
+versioned Replay Bundle in Rust, builds an evidence-linked Semantic IR in SQLite, and exposes
+question-scoped replay facts to the coaching Agent and local web UI.
 
 ## Current MVP
 
@@ -14,10 +14,12 @@ metrics to a local web UI.
   status stream, cancellation, and SQLite transaction/batch ingestion.
 - Global 13.05 full-file support (138,065 parser events and 165,047 compact movement samples on the
   checked fixture); file databases use WAL so progress queries stay responsive during ingestion.
-- China 13.05 container-only support (239/239 checked server Events) with explicit `unsupported`
-  payload status and no silent Global fallback.
-- Raw movement path/velocity summary with timestamped evidence; unsupported fields are not
-  represented as zero.
+- China 13.05 trustworthy partial import: 239/239 server Events, 22 rounds and the 10-player header
+  roster reach `ready`; ReplayData movement/combat remains explicitly unavailable and never falls
+  back to the incompatible Global transform.
+- Semantic rounds, movement (position/aim/alive/area), shots, damage, kills, ultimates and Spike
+  events with source-file/row evidence. The Agent retrieves only relevant rounds, including area
+  occupancy and nearby-player snapshots, instead of receiving a lossy movement summary or raw dump.
 - Match browsing, exact 5v5 team rosters derived from stable player-state identities, agent-based
   player selection, and local account binding. Re-spawned character actors are collapsed into the
   same player instead of appearing as duplicate GUIDs.
@@ -28,7 +30,7 @@ metrics to a local web UI.
   held only in backend process memory and are never returned to the page.
 
 China-region ReplayData remains unsupported because its payload transform differs from the Global
-release format; its metadata and server timeline are still exported. See
+release format; its metadata, roster, rounds and server timeline are still imported. See
 `docs/REPLAY_CHINA_13_05_REPORT.md`.
 
 ## Run locally
@@ -64,5 +66,5 @@ cargo test -p valcoach-server 13_05_job -- --ignored --nocapture
 ```
 
 The ignored tests require the two local fixture directories. They run the real Global file through
-probe → Parser → Bundle → SQLite → metrics and verify China terminates quickly with retained
-container evidence. Fixture and generated artifact hashes/counts are documented under `docs/`.
+probe → Parser → Bundle → Semantic IR → SQLite and verify China reaches a capability-gated partial
+`ready` result. Fixture and generated artifact hashes/counts are documented under `docs/`.

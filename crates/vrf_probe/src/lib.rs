@@ -98,6 +98,13 @@ pub struct ProbeReport {
     pub server_event_counts: BTreeMap<String, u64>,
     pub integrity: ProbeIntegrity,
     pub server_events: Vec<ServerTimelineEvent>,
+    pub player_loadouts: Vec<ProbePlayerLoadout>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbePlayerLoadout {
+    pub subject: String,
+    pub character_id: String,
 }
 
 pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {
@@ -211,7 +218,28 @@ pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {
         server_event_counts,
         integrity,
         server_events,
+        player_loadouts: extract_player_loadouts(&preamble.header.game_specific_data),
     })
+}
+
+fn extract_player_loadouts(entries: &[String]) -> Vec<ProbePlayerLoadout> {
+    entries
+        .iter()
+        .filter_map(|entry| serde_json::from_str::<serde_json::Value>(entry).ok())
+        .filter_map(|value| {
+            value
+                .get("playerLoadouts")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+        })
+        .flatten()
+        .filter_map(|item| {
+            Some(ProbePlayerLoadout {
+                subject: item.get("subject")?.as_str()?.to_owned(),
+                character_id: item.get("characterId")?.as_str()?.to_ascii_lowercase(),
+            })
+        })
+        .collect()
 }
 
 pub fn write_probe_artifacts(report: &ProbeReport, output: &Path) -> Result<(), ProbeError> {

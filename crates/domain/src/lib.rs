@@ -32,6 +32,8 @@ pub enum ReplayInput {
 pub struct ParsedBundle {
     pub events_path: PathBuf,
     pub movement_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_events_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +149,16 @@ pub struct MovementSample {
     pub character_net_guid: Option<u64>,
     pub position: Vector3,
     pub velocity: Option<Vector3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yaw: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_no: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -164,6 +176,12 @@ pub struct EvidenceRef {
     pub timestamp_ms: Option<i64>,
     pub player_id: Option<PlayerId>,
     pub evidence_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_row: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_event_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

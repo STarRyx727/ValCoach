@@ -11,7 +11,8 @@
 - Captured the unmodified Parser failure.
 - Applied only an explicit China 13.05 → Global 13.05 transform registration in an isolated
   experiment, ran the full file, judged it against strict criteria, and reverted it from production.
-- Added website behavior that terminates as `unsupported` while retaining the valid Bundle evidence.
+- Added a fail-closed partial import: the website reaches `ready` with common timeline, 22 rounds
+  and the 10 header roster entries while clearly marking ReplayData-derived capabilities unavailable.
 
 ## Commands
 
@@ -42,25 +43,26 @@ cargo test -p valcoach-server 13_05_job -- --ignored --nocapture
 - Alias experiment exit codes: `log=1`, `export=1`. It emitted only 86 partial event lines
   (35,058 bytes), zero movement, repeated EndOfArchive/malformed field errors, then terminated with
   `OverflowException` in `FieldPayloadParser.ParseProperty`.
-- Production website test: PASS. The job reached `unsupported` in about two seconds, error detail
-  retained the exact branch, and Bundle validation passed with 239 server Events.
+- Production website test: PASS. The job reached partial `ready`, persisted 22 rounds and 10 players,
+  and Bundle validation passed with 239 server Events.
 
 ## Files changed
 
 - `patches/valorant_parser_cn_13_05_alias.patch`: preserved experiment only; not applied by setup.
 - `crates/vrf_probe/`: common container/Event implementation.
-- `apps/server/src/jobs.rs`: Header-derived region and no-silent-fallback behavior.
+- `apps/server/src/jobs.rs`: Header-derived region, trustworthy partial import and no-silent-fallback behavior.
 - `scripts/smoke_cn_13_05.ps1`: reproducible container-level acceptance test.
 
 ## Evidence
 
-Raw logs are under `artifacts/replay/china_13_05_baseline`,
-`artifacts/replay/china_13_05_alias`, and `artifacts/smoke-china-13.05`. These generated artifacts
-and the fixture are Git-ignored. The legacy China 13.00 failure remains in `docs/P0_REPORT.md`.
+Raw experiment logs were generated under `artifacts/` and are Git-ignored. They may be removed after
+the checked counts and failure mode are recorded here. The source fixture remains local and intact.
+The legacy China 13.00 failure remains in `docs/P0_REPORT.md`.
 
 ## Known limitations
 
-- ReplayData content, movement, actors, player identity, gunplay and abilities are unsupported.
+- ReplayData content, movement, actor identity, gunplay and abilities are unsupported. The roster
+  comes from replay-header loadouts and must not be mistaken for actor-resolved identities.
 - Server Event timeline supports reliable event type/time counts, but does not by itself resolve
   player identities or full round state.
 - A valid China transform requires bounded, grammar-validated reverse engineering and a full-file
@@ -69,7 +71,7 @@ and the fixture are Git-ignored. The legacy China 13.00 failure remains in `docs
 ## Decision
 
 - ALIAS FAILED.
-- PASS — Milestone 2 (China Container Ready).
+- PASS — Milestone 2 (China Container + partial website import Ready).
 - BLOCKED — Milestone 3 (China ReplayData Ready), pending a verified China 13.05 payload transform.
 
 ## Next

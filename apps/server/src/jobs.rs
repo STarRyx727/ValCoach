@@ -360,8 +360,8 @@ impl JobManager {
                     write_bundle_manifest(
                         &probe_directory,
                         &probe,
-                        "unsupported",
-                        "China 13.05 container and server timeline are valid; no verified payload transform is available",
+                        "pending",
+                        "China 13.05 common container and server timeline detected",
                         valcoach_domain::ReplayCapabilities::china_container_only(),
                         BundleRecordCounts {
                             server_events: probe.chunks.events,
@@ -370,11 +370,7 @@ impl JobManager {
                         None,
                     )
                     .await?;
-                    return Err(JobManagerError::Source(
-                        ReplaySourceError::UnsupportedTransform {
-                            branch: probe.replay.branch,
-                        },
-                    ));
+                    ReplayRegion::China
                 }
                 ProbedRegion::Unknown => {
                     write_bundle_manifest(
@@ -404,40 +400,75 @@ impl JobManager {
                 &events,
                 &job_id,
                 "parsing",
-                "Running local replay parser",
+                if region == ReplayRegion::China {
+                    "Building trusted common server timeline"
+                } else {
+                    "Running local replay parser"
+                },
                 None,
                 None,
             )
             .await?;
-            let mut replay = self
-                .parser_source
-                .ingest(
-                    ReplayInput::Vrf {
-                        path: replay_path,
-                        region,
-                        output_directory: output_directory.clone(),
+            let (mut replay, parser_diagnostics) = if region == ReplayRegion::China {
+                let parser_events = probe_directory.join("parser_events.ndjson");
+                let movement = probe_directory.join("movement.ndjson");
+                tokio::fs::write(&parser_events, b"").await?;
+                tokio::fs::write(&movement, b"").await?;
+                (
+                    valcoach_domain::ParsedReplay {
+                        metadata: valcoach_domain::ReplayMetadata {
+                            replay_id: probe.replay.internal_replay_id.clone(),
+                            branch: Some(probe.replay.branch.clone()),
+                            map: probe.replay.map_asset_path.clone(),
+                            duration_ms: Some(i64::from(probe.replay.duration_ms)),
+                        },
+                        bundle: valcoach_domain::ParsedBundle {
+                            events_path: parser_events,
+                            movement_path: movement,
+                            server_events_path: Some(probe_directory.join("server_events.ndjson")),
+                        },
+                        source_name: "valcoach_common_probe".to_owned(),
+                        capabilities: valcoach_domain::ReplayCapabilities::china_container_only(),
+                        summary: valcoach_domain::ParsedReplaySummary::default(),
                     },
-                    cancel.clone(),
+                    None,
                 )
-                .await?;
+            } else {
+                let mut replay = self
+                    .parser_source
+                    .ingest(
+                        ReplayInput::Vrf {
+                            path: replay_path,
+                            region,
+                            output_directory: output_directory.clone(),
+                        },
+                        cancel.clone(),
+                    )
+                    .await?;
+                let diagnostics = read_parser_diagnostics(&output_directory).await?;
+                promote_parser_artifacts(&mut replay, &output_directory, &probe_directory).await?;
+                (replay, Some(diagnostics))
+            };
             replay.metadata.replay_id = probe.replay.internal_replay_id.clone();
             replay.metadata.branch = Some(probe.replay.branch.clone());
             replay.metadata.map = probe.replay.map_asset_path.clone();
             replay.metadata.duration_ms = Some(i64::from(probe.replay.duration_ms));
-            let parser_diagnostics = read_parser_diagnostics(&output_directory).await?;
-            promote_parser_artifacts(&mut replay, &output_directory, &probe_directory).await?;
             write_bundle_manifest(
                 &probe_directory,
                 &probe,
-                "complete",
-                "Verified ValorantReplayParser Global 13.05 export using the valcoach compact profile",
+                if region == ReplayRegion::China { "partial" } else { "complete" },
+                if region == ReplayRegion::China {
+                    "China 13.05 server timeline and roster metadata imported; ReplayData transform remains fail-closed"
+                } else {
+                    "Verified ValorantReplayParser 13.05 export using the valcoach semantic profile"
+                },
                 replay.capabilities.clone(),
                 BundleRecordCounts {
                     server_events: probe.chunks.events,
                     normalized_events: replay.summary.event_count,
                     movement_samples: replay.summary.movement_count,
                 },
-                Some(parser_diagnostics),
+                parser_diagnostics,
             )
             .await?;
             if cancel.is_cancelled() {
@@ -468,6 +499,21 @@ impl JobManager {
             self.database
                 .insert_parsed_replay_with_records(&user_id, &match_id, &replay, cancel.clone())
                 .await?;
+            if region == ReplayRegion::China {
+                let players = probe
+                    .player_loadouts
+                    .iter()
+                    .map(|player| (player.subject.clone(), agent_name_from_uuid(&player.character_id).to_owned()))
+                    .collect::<Vec<_>>();
+                self.database.insert_probe_players(&user_id, &match_id, &players).await?;
+            }
+            if let Some(diagnostics) = self.database.semantic_diagnostics(&match_id).await? {
+                tokio::fs::write(
+                    probe_directory.join("semantic_diagnostics.json"),
+                    serde_json::to_vec_pretty(&diagnostics)?,
+                )
+                .await?;
+            }
             self.transition(
                 &events,
                 &job_id,
@@ -480,8 +526,9 @@ impl JobManager {
             if cancel.is_cancelled() {
                 return Err(JobManagerError::Cancelled);
             }
-            self.compute_movement_metrics(&user_id, &match_id, &cancel)
-                .await?;
+            if region != ReplayRegion::China {
+                self.compute_movement_metrics(&user_id, &match_id, &cancel).await?;
+            }
             self.transition(
                 &events,
                 &job_id,
@@ -595,6 +642,20 @@ fn safe_source_filename(filename: Option<&str>) -> String {
         .to_owned()
 }
 
+fn agent_name_from_uuid(character_id: &str) -> &str {
+    match character_id.to_ascii_lowercase().as_str() {
+        "bb2a4828-46eb-8cd1-e765-15848195d751" => "Neon",
+        "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc" => "Reyna",
+        "1dbf2edd-4729-0984-3115-daa5eed44993" => "Killjoy",
+        "dade69b4-4f5a-8528-247b-219e5a1facd6" => "Fade",
+        "569fdd95-4d10-43ab-ca70-79becc718b46" => "Sage",
+        "add6443a-41bd-e414-f6ad-e58d267f4e95" => "Jett",
+        "320b2a48-4d9b-a075-30f1-1f93a9b638fa" => "Sova",
+        "8e253930-4c05-31dd-1b6c-968525494517" => "Omen",
+        _ => "未知特工",
+    }
+}
+
 async fn write_bundle_manifest(
     directory: &Path,
     probe: &valcoach_vrf_probe::ProbeReport,
@@ -633,6 +694,13 @@ async fn write_bundle_manifest(
             "parser_events.ndjson".to_owned(),
             "movement.ndjson".to_owned(),
             "diagnostics.json".to_owned(),
+            "semantic_diagnostics.json".to_owned(),
+        ]);
+    } else if payload_status == "partial" {
+        artifacts.extend([
+            "parser_events.ndjson".to_owned(),
+            "movement.ndjson".to_owned(),
+            "semantic_diagnostics.json".to_owned(),
         ]);
     }
     let integrity = BundleIntegrity {
@@ -703,6 +771,7 @@ async fn promote_parser_artifacts(
     .await?;
     replay.bundle.events_path = parser_events;
     replay.bundle.movement_path = movement;
+    replay.bundle.server_events_path = Some(bundle_directory.join("server_events.ndjson"));
     Ok(())
 }
 
@@ -928,6 +997,104 @@ mod tests {
                     roster,
                     vec![("team_a".to_owned(), 5), ("team_b".to_owned(), 5)]
                 );
+                let unknown_agents: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM players WHERE match_id = ? AND agent_name IS NULL",
+                )
+                .bind(&match_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("unknown agents");
+                assert_eq!(unknown_agents, 0);
+                let rounds: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM rounds WHERE match_id = ?")
+                        .bind(&match_id)
+                        .fetch_one(database.pool())
+                        .await
+                        .expect("rounds");
+                let first_round: i64 =
+                    sqlx::query_scalar("SELECT MIN(round_no) FROM rounds WHERE match_id = ?")
+                        .bind(&match_id)
+                        .fetch_one(database.pool())
+                        .await
+                        .expect("first round");
+                let deaths: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM combat_events WHERE match_id = ? AND kind = 'kill'",
+                )
+                .bind(&match_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("deaths");
+                let selected_shots: i64 = sqlx::query_scalar(
+                    r#"SELECT COUNT(*) FROM combat_events JOIN players
+                       ON players.id = combat_events.attacker_player_id
+                       WHERE combat_events.match_id = ? AND combat_events.kind = 'shot'
+                         AND players.stable_player_id = 'ec3ffefe-e11b-5623-8f56-3c55deef5bc1'"#,
+                )
+                .bind(&match_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("selected player shots");
+                let selected_player_id: String = sqlx::query_scalar(
+                    "SELECT id FROM players WHERE match_id = ? AND stable_player_id = 'ec3ffefe-e11b-5623-8f56-3c55deef5bc1'",
+                )
+                .bind(&match_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("selected player id");
+                let selected_movement: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM movement_samples WHERE match_id = ? AND player_id = ?",
+                )
+                .bind(&match_id)
+                .bind(&selected_player_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("selected player movement");
+                let selected_kills: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM combat_events WHERE match_id = ? AND kind = 'kill' AND attacker_player_id = ?",
+                )
+                .bind(&match_id)
+                .bind(&selected_player_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("selected player kills");
+                let selected_deaths: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM combat_events WHERE match_id = ? AND kind = 'kill' AND victim_player_id = ?",
+                )
+                .bind(&match_id)
+                .bind(&selected_player_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("selected player deaths");
+                assert_eq!(rounds, 20);
+                assert_eq!(first_round, 0);
+                assert_eq!(deaths, 161);
+                assert_eq!(selected_shots, 304);
+                assert_eq!(selected_movement, 16_762);
+                assert_eq!(selected_kills, 18);
+                assert_eq!(selected_deaths, 17);
+                let semantic_context = database
+                    .build_semantic_coaching_context(
+                        "user-1",
+                        &match_id,
+                        &selected_player_id,
+                        None,
+                        Some("A"),
+                        Some("defense"),
+                    )
+                    .await
+                    .expect("scoped semantic context");
+                assert!(
+                    semantic_context.context["relevant_rounds"]
+                        .as_array()
+                        .is_some_and(|rounds| !rounds.is_empty()),
+                    "A-defense retrieval must return semantic rounds"
+                );
+                assert!(
+                    semantic_context.context["tools_used"]
+                        .as_array()
+                        .is_some_and(|tools| tools.iter().any(|tool| tool == "get_nearby_players")),
+                    "context must include nearby-player retrieval"
+                );
                 let metric_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM match_metrics WHERE match_id = ? AND metric_name = 'movement_summary_v1'",
                 )
@@ -955,8 +1122,17 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "reads the full China 13.05 fixture"]
-    async fn china_13_05_job_reports_verified_unsupported_transform() {
-        let database = valcoach_db::Database::connect("sqlite::memory:")
+    async fn china_13_05_job_imports_common_timeline_and_roster() {
+        let storage = tempdir().expect("temporary storage");
+        let database_url = format!(
+            "sqlite://{}",
+            storage
+                .path()
+                .join("china-job.db")
+                .to_string_lossy()
+                .replace('\\', "/")
+        );
+        let database = valcoach_db::Database::connect(&database_url)
             .await
             .expect("database");
         database
@@ -968,9 +1144,8 @@ mod tests {
             .await
             .expect("user");
         let root = workspace_root();
-        let storage = tempdir().expect("temporary storage");
         let manager = JobManager::new(
-            database,
+            database.clone(),
             root.join(".external").join("ValorantReplayParser"),
             "C:\\Program Files\\dotnet\\dotnet.exe",
             storage.path(),
@@ -994,16 +1169,36 @@ mod tests {
                 .await
                 .expect("job lookup")
                 .expect("job");
-            if status.status == "unsupported" {
-                let detail = status.error_message.expect("unsupported detail");
-                assert!(detail.contains("++Ares-Core+release-china-13.05"));
+            if status.status == "ready" {
+                let match_id = status.match_id.expect("match id");
+                let rounds: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM rounds WHERE match_id = ?")
+                        .bind(&match_id)
+                        .fetch_one(database.pool())
+                        .await
+                        .expect("rounds");
+                let players: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM players WHERE match_id = ?")
+                        .bind(&match_id)
+                        .fetch_one(database.pool())
+                        .await
+                        .expect("players");
+                let diagnostics = database
+                    .semantic_diagnostics(&match_id)
+                    .await
+                    .expect("semantic diagnostics")
+                    .expect("stored semantic diagnostics");
+                assert_eq!(rounds, 22);
+                assert_eq!(players, 10);
+                assert_eq!(diagnostics["players"]["resolved"], 10);
+                assert_eq!(diagnostics["movement"]["semantic_rows"], 0);
                 let manifest: serde_json::Value = serde_json::from_slice(
                     &tokio::fs::read(storage.path().join("jobs/job-cn/bundle/manifest.json"))
                         .await
                         .expect("bundle manifest"),
                 )
                 .expect("valid manifest");
-                assert_eq!(manifest["backend"]["status"], "unsupported");
+                assert_eq!(manifest["backend"]["status"], "partial");
                 assert_eq!(manifest["records"]["server_events"], 239);
                 return;
             }
@@ -1014,6 +1209,6 @@ mod tests {
             );
             sleep(Duration::from_millis(100)).await;
         }
-        panic!("China fixture did not reach unsupported within 10 seconds");
+        panic!("China fixture did not reach ready within 10 seconds");
     }
 }

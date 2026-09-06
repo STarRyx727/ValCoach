@@ -21,6 +21,7 @@ async fn p0_global_export_normalizes_as_a_streaming_bundle() {
             ReplayInput::ParsedBundle(ParsedBundle {
                 events_path: output.join("events.ndjson"),
                 movement_path: output.join("movement.ndjson"),
+                server_events_path: None,
             }),
             CancellationToken::new(),
         )

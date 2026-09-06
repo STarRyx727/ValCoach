@@ -6,9 +6,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use valcoach_domain::{
-    CapabilityLevel, ParsedReplay, ReplayCapabilities, ReplayInput, ReplayRegion,
-};
+use valcoach_domain::{CapabilityLevel, ParsedReplay, ReplayCapabilities, ReplayInput};
 
 use crate::{ParsedBundleSource, ReplayDataSource, ReplaySourceError};
 
@@ -118,10 +116,9 @@ impl ReplayDataSource for ValorantReplayParserSource {
             });
         };
 
-        if region == ReplayRegion::China {
-            return Err(ReplaySourceError::UnsupportedInput {
-                source_name: self.source_name(),
-                reason: "CN replay payload transform is not currently supported".to_owned(),
+        if region == valcoach_domain::ReplayRegion::China {
+            return Err(ReplaySourceError::UnsupportedTransform {
+                branch: "++Ares-Core+release-china-13.05".to_owned(),
             });
         }
 
@@ -131,6 +128,7 @@ impl ReplayDataSource for ValorantReplayParserSource {
                 ReplayInput::ParsedBundle(valcoach_domain::ParsedBundle {
                     events_path: output_directory.join("events.ndjson"),
                     movement_path: output_directory.join("movement.ndjson"),
+                    server_events_path: None,
                 }),
                 cancel,
             )
