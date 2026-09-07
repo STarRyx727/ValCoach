@@ -1,0 +1,91 @@
+{
+  "seed": 285,
+  "ciphertext_hex": "E0300FEB039E0CA4",
+  "expected_plaintext_hex": "100CA461300F0804",
+  "candidates": [
+    {
+      "transform": "ValorantSeededTransform12_10",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-12.10"
+      ],
+      "decoded_hex": "BC423F8CFEEDE319",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 38,
+      "zero_byte_count": 0,
+      "high_byte_count": 5
+    },
+    {
+      "transform": "ValorantSeededTransform12_11",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-12.11"
+      ],
+      "decoded_hex": "CD816B0837F02F98",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 39,
+      "zero_byte_count": 0,
+      "high_byte_count": 4
+    },
+    {
+      "transform": "ValorantSeededTransform13_00",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-13.00"
+      ],
+      "decoded_hex": "79DD66E4BE3A8914",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 25,
+      "zero_byte_count": 0,
+      "high_byte_count": 4
+    },
+    {
+      "transform": "ValorantSeededTransform13_01",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-13.01"
+      ],
+      "decoded_hex": "259D3FBD798607E6",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 31,
+      "zero_byte_count": 0,
+      "high_byte_count": 4
+    },
+    {
+      "transform": "ValorantSeededTransform13_02",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-13.02"
+      ],
+      "decoded_hex": "9A5564073A10BC86",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 26,
+      "zero_byte_count": 0,
+      "high_byte_count": 3
+    },
+    {
+      "transform": "ValorantSeededTransform13_04",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-13.04"
+      ],
+      "decoded_hex": "387B1FAB4DBA857F",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 39,
+      "zero_byte_count": 0,
+      "high_byte_count": 3
+    },
+    {
+      "transform": "ValorantSeededTransform13_05",
+      "replay_versions": [
+        "\u002B\u002BAres-Core\u002Brelease-13.05"
+      ],
+      "decoded_hex": "B0F92DCE60F8E7EE",
+      "exact_match": false,
+      "common_prefix_bytes": 0,
+      "hamming_distance_bits": 38,
+      "zero_byte_count": 0,
+      "high_byte_count": 6
+    }
+  ]
+}

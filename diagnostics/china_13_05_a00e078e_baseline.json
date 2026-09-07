@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "experiment": "china_unmodified_baseline_and_temporary_global_alias",
+  "metadata": {
+    "schema_version": 1,
+    "source": {
+      "filename": "a00e078e-6412-4785-ada9-45d5f87c1fc1.vrf",
+      "sha256": "600c113269bf4f9a05db32094e4354095ac39ca4751ad307dd60687b8664e8b1",
+      "size_bytes": 86451429
+    },
+    "replay": {
+      "internal_replay_id": "a00e078e-6412-4785-ada9-45d5f87c1fc1",
+      "region": "china",
+      "branch": "++Ares-Core+release-china-13.05",
+      "build_changelist": 5350608,
+      "header_changelist": 2152834256,
+      "version": "5.3.2",
+      "duration_ms": 2963376,
+      "map_asset_path": "/Game/Maps/Bonsai/Bonsai",
+      "network_version": 19,
+      "network_checksum": 4217436668,
+      "engine_network_protocol_version": 32,
+      "ue4_version": 522,
+      "ue5_version": 1009,
+      "package_version_license": 80,
+      "platform": "LinuxServer",
+      "header_trailing_bytes": 0
+    },
+    "chunks": {
+      "replay_data": 30,
+      "checkpoints": 29,
+      "events": 360,
+      "unknown": 0
+    },
+    "server_event_counts": {
+      "characterDeath": 212,
+      "characterUltimateUsed": 82,
+      "roundStarted": 28,
+      "spikeDefused": 7,
+      "spikeExploded": 4,
+      "spikePlanted": 21,
+      "switchTeams": 6
+    },
+    "integrity": {
+      "valid_event_payloads": 360,
+      "invalid_event_payloads": 0,
+      "event_trailing_bytes": 0,
+      "checkpoint_trailing_bytes": 0,
+      "replay_data_trailing_bytes": 0
+    },
+    "server_events": [],
+    "player_loadouts": [
+      {
+        "subject": "9478d0f8-6999-56cf-92e1-37d11cadd0ee",
+        "character_id": "add6443a-41bd-e414-f6ad-e58d267f4e95"
+      },
+      {
+        "subject": "d5684fe0-ef01-5de2-9290-e065dbe4cc9d",
+        "character_id": "eb93336a-449b-9c1b-0a54-a891f7921d69"
+      },
+      {
+        "subject": "5bb0b79c-ae4d-5d30-9cb7-1f4da5a07e29",
+        "character_id": "1dbf2edd-4729-0984-3115-daa5eed44993"
+      },
+      {
+        "subject": "a26d0768-8f6f-58eb-98de-3fc44c9f09af",
+        "character_id": "569fdd95-4d10-43ab-ca70-79becc718b46"
+      },
+      {
+        "subject": "dbc18553-ab14-5fba-aa57-9568c10d8ef2",
+        "character_id": "320b2a48-4d9b-a075-30f1-1f93a9b638fa"
+      },
+      {
+        "subject": "9ff8e6c7-45a9-56aa-95bb-91a37ba5cbdc",
+        "character_id": "0e38b510-41a8-5780-5e8f-568b2a4f2d6c"
+      },
+      {
+        "subject": "5822efeb-7e2b-58dd-8d5f-0abf2af8a2ed",
+        "character_id": "569fdd95-4d10-43ab-ca70-79becc718b46"
+      },
+      {
+        "subject": "c0cb511f-ef10-51ce-ada7-e03895216e77",
+        "character_id": "add6443a-41bd-e414-f6ad-e58d267f4e95"
+      },
+      {
+        "subject": "8b926ec7-028c-52de-ab43-b4cfc2139821",
+        "character_id": "1dbf2edd-4729-0984-3115-daa5eed44993"
+      },
+      {
+        "subject": "359843ec-0d03-5fa3-9f80-fc1f2ebed1ba",
+        "character_id": "601dbbe7-43ce-be57-2a40-4abd24953621"
+      }
+    ]
+  },
+  "unmodified_parser": {
+    "supported": false,
+    "expected_error": "no payload transform is registered for replay branch '++Ares-Core+release-china-13.05'."
+  },
+  "temporary_alias": {
+    "selected_transform": "ValorantSeededTransformChina13_05DiagnosticAlias -> ValorantSeededTransform13_05",
+    "reached_eof": true,
+    "pipeline": {
+      "replay_chunk_count": 420,
+      "replay_data_chunk_count": 30,
+      "playback_packet_count": 895514,
+      "raw_packet_count": 895514,
+      "bunch_count": 895514,
+      "payload_bunch_count": 891988,
+      "package_map_export_bunch_count": 0,
+      "exported_net_guid_count": 0,
+      "must_be_mapped_guid_count": 0,
+      "actor_channel_open_count": 3729,
+      "actor_channel_close_count": 3526,
+      "content_block_count": 868411,
+      "actor_content_block_count": 732010,
+      "subobject_content_block_count": 282430,
+      "rep_layout_content_block_count": 439613,
+      "resolved_export_group_count": 443,
+      "content_payload_bits_parsed": 1181615046,
+      "content_payload_bits_skipped": 102866116,
+      "malformed_payload_count": 146029,
+      "malformed_payload_exception_count": 146029,
+      "malformed_content_block_count": 0,
+      "partial_error_count": 218,
+      "trailing_payload_count": 0
+    },
+    "raw_packet_stats": {
+      "packet_count": 895514,
+      "packets_with_bunches": 895514,
+      "bunch_count": 895514,
+      "malformed_packet_count": 0,
+      "partial_error_count": 218,
+      "total_packet_bytes": 199356685
+    },
+    "decoded_counts": {
+      "movement": 0,
+      "events": 132723,
+      "actor_spawned": 3729,
+      "actor_closed": 3526,
+      "export_group_received": 121080,
+      "rpc_received": 4331,
+      "valorant_shot_received": 57,
+      "filtered_export_groups": 747252,
+      "undecoded_export_groups": 373586,
+      "empty_decoded_export_groups": 373666
+    },
+    "transform_sample_health": {
+      "sample_count": 1000,
+      "malformed_count": 45,
+      "malformed_ratio": 0.045,
+      "samples_with_decoded_fields": 0,
+      "samples_with_decoded_fields_ratio": 0,
+      "fully_consumed_count": 976,
+      "fully_consumed_ratio": 0.976,
+      "mean_parsed_payload_ratio": 0.9877223521331844
+    }
+  }
+}

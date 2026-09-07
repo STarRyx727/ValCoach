@@ -195,7 +195,12 @@ pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {
         path: path.to_path_buf(),
         source,
     })?;
-    probe_bytes(&data)
+    let mut report = probe_bytes(&data)?;
+    report.source.filename = path
+        .file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(report)
 }
 
 pub fn probe_bytes(data: &[u8]) -> Result<ProbeReport, ProbeError> {
@@ -203,7 +208,9 @@ pub fn probe_bytes(data: &[u8]) -> Result<ProbeReport, ProbeError> {
     let branch = preamble.header.replay_version.branch.clone();
     let region = match branch.as_str() {
         "++Ares-Core+release-13.05" => ProbedRegion::Global,
-        "++Ares-Core+release-china-13.05" => ProbedRegion::China,
+        "++Ares-Core+release-china-13.04" | "++Ares-Core+release-china-13.05" => {
+            ProbedRegion::China
+        }
         _ => ProbedRegion::Unknown,
     };
     let source = SourceIdentity {
@@ -312,7 +319,9 @@ pub fn probe_bytes_lenient(data: &[u8]) -> Result<ProbeReport, ProbeError> {
             let branch = preamble.header.replay_version.branch.clone();
             let region = match branch.as_str() {
                 "++Ares-Core+release-13.05" => ProbedRegion::Global,
-                "++Ares-Core+release-china-13.05" => ProbedRegion::China,
+                "++Ares-Core+release-china-13.04" | "++Ares-Core+release-china-13.05" => {
+                    ProbedRegion::China
+                }
                 _ => ProbedRegion::Unknown,
             };
             let source = SourceIdentity {

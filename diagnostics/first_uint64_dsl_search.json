@@ -1,0 +1,307 @@
+{
+  "best_candidates": [
+    {
+      "decoded_hex": "010C0450E026189E",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "12.11",
+      "state_rotations": [
+        7,
+        1,
+        5,
+        6,
+        8
+      ]
+    },
+    {
+      "decoded_hex": "010C0450E026189E",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "12.11",
+      "state_rotations": [
+        7,
+        1,
+        5,
+        8,
+        6
+      ]
+    },
+    {
+      "decoded_hex": "010C0450E026189E",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "12.11",
+      "state_rotations": [
+        7,
+        1,
+        6,
+        5,
+        8
+      ]
+    },
+    {
+      "decoded_hex": "010C0450E026189E",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "12.11",
+      "state_rotations": [
+        7,
+        1,
+        6,
+        8,
+        5
+      ]
+    },
+    {
+      "decoded_hex": "010C0450E026189E",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "12.11",
+      "state_rotations": [
+        7,
+        1,
+        8,
+        5,
+        6
+      ]
+    },
+    {
+      "decoded_hex": "010C0450E026189E",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "12.11",
+      "state_rotations": [
+        7,
+        1,
+        8,
+        6,
+        5
+      ]
+    },
+    {
+      "decoded_hex": "350C2972B30D4940",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "13.00",
+      "state_rotations": [
+        4,
+        3,
+        1,
+        6
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30F04CF",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        7,
+        1,
+        6,
+        2,
+        3
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30F04CF",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        7,
+        1,
+        6,
+        3,
+        2
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30F04CF",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        7,
+        6,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30F04CF",
+      "exact_match": false,
+      "hamming_distance_bits": 18,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        7,
+        6,
+        1,
+        3,
+        2
+      ]
+    },
+    {
+      "decoded_hex": "544EFC61F32B09CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        4,
+        6,
+        3,
+        1,
+        5,
+        7,
+        2,
+        8
+      ]
+    },
+    {
+      "decoded_hex": "544EFC61F32B09CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        4,
+        6,
+        3,
+        1,
+        5,
+        7,
+        8,
+        2
+      ]
+    },
+    {
+      "decoded_hex": "544EFC61F32B09CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        4,
+        6,
+        3,
+        1,
+        7,
+        5,
+        2,
+        8
+      ]
+    },
+    {
+      "decoded_hex": "544EFC61F32B09CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        4,
+        6,
+        3,
+        1,
+        7,
+        5,
+        8,
+        2
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30704CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        6,
+        1,
+        7,
+        2,
+        3
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30704CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        6,
+        1,
+        7,
+        3,
+        2
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30704CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        6,
+        7,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "decoded_hex": "F02CEC60F30704CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        5,
+        4,
+        8,
+        6,
+        7,
+        1,
+        3,
+        2
+      ]
+    },
+    {
+      "decoded_hex": "8025FC61F30D18CF",
+      "exact_match": false,
+      "hamming_distance_bits": 19,
+      "skeleton": "13.05",
+      "state_rotations": [
+        6,
+        7,
+        3,
+        1,
+        4,
+        5,
+        2,
+        8
+      ]
+    }
+  ],
+  "ciphertext_hex": "E0300FEB039E0CA4",
+  "exact_candidates": [],
+  "expected_plaintext_hex": "100CA461300F0804",
+  "search_space": "historical skeletons with distinct ROR(state,1..8) assignments",
+  "seed": 285
+}

@@ -1,8 +1,50 @@
+diff --git a/src/CliReader/CliApplication.cs b/src/CliReader/CliApplication.cs
+index 4fcbc74..294fe34 100644
+--- a/src/CliReader/CliApplication.cs
++++ b/src/CliReader/CliApplication.cs
+@@ -3,6 +3,7 @@ using CliReader.Logging;
+ using Microsoft.Extensions.Logging;
+ using Replay.Models.Errors;
+ using Serilog;
++using Serilog.Events;
+ 
+ namespace CliReader;
+ 
+@@ -11,16 +12,18 @@ internal sealed class CliApplication : IDisposable
+     private readonly ILoggerFactory _loggerFactory;
+     private readonly Microsoft.Extensions.Logging.ILogger _logger;
+ 
+-    public CliApplication()
++    public CliApplication(bool quietDiagnostics = false)
+     {
++        var serilogMinimum = quietDiagnostics ? LogEventLevel.Fatal : LogEventLevel.Information;
++        var frameworkMinimum = quietDiagnostics ? LogLevel.Critical : LogLevel.Information;
+         Log.Logger = new LoggerConfiguration()
+-            .MinimumLevel.Information()
++            .MinimumLevel.Is(serilogMinimum)
+             .WriteTo.Console(
+                 outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+             .CreateLogger();
+ 
+         _loggerFactory = LoggerFactory.Create(builder => builder
+-            .SetMinimumLevel(LogLevel.Information)
++            .SetMinimumLevel(frameworkMinimum)
+             .AddProvider(new SerilogLoggerProvider(Log.Logger)));
+         _logger = _loggerFactory.CreateLogger("CliReader");
+     }
 diff --git a/src/CliReader/CliCommandFactory.cs b/src/CliReader/CliCommandFactory.cs
-index 07d7b51..3b9cbbe 100644
+index 07d7b51..081982f 100644
 --- a/src/CliReader/CliCommandFactory.cs
 +++ b/src/CliReader/CliCommandFactory.cs
-@@ -39,10 +39,10 @@ internal static class CliCommandFactory
+@@ -12,6 +12,7 @@ internal static class CliCommandFactory
+             "Parse VALORANT replay files and either log decoded activity or export it as JSON.");
+         root.Subcommands.Add(CreateLogCommand());
+         root.Subcommands.Add(CreateExportCommand());
++        root.Subcommands.Add(CreateTransformFirstBlockCommand());
+         root.SetAction(parseResult => new HelpAction().Invoke(parseResult));
+         return root;
+     }
+@@ -39,23 +40,50 @@ internal static class CliCommandFactory
          };
          var profile = new Option<string>("--profile", "-p")
          {
@@ -12,24 +54,110 @@ index 07d7b51..3b9cbbe 100644
          };
 -        profile.AcceptOnlyFromAmong("default", "viewer");
 +        profile.AcceptOnlyFromAmong("default", "viewer", "valcoach");
-
++        var diagnoseTransform = new Option<FileInfo?>("--diagnose-transform")
++        {
++            Description = "Write bounded property/RPC transform samples as JSONL.",
++        };
++        var diagnoseTransformLimit = new Option<int>("--diagnose-transform-limit")
++        {
++            Description = "Maximum number of transform samples to write (500-2000 recommended).",
++            DefaultValueFactory = _ => 1000,
++        };
++        var diagnoseChinaAlias = new Option<bool>("--diagnose-china-alias")
++        {
++            Description = "Temporarily decode China 13.04/13.05 payloads with the matching Global transform.",
++        };
+ 
          var command = new Command("export", "Export replay events and movement as versioned NDJSON.");
          command.Arguments.Add(replayPath);
+         command.Options.Add(outputDirectory);
+         command.Options.Add(profile);
++        command.Options.Add(diagnoseTransform);
++        command.Options.Add(diagnoseTransformLimit);
++        command.Options.Add(diagnoseChinaAlias);
+         command.SetAction(parseResult =>
+         {
+             var profileName = parseResult.GetRequiredValue(profile);
++            var diagnosticsLimit = parseResult.GetRequiredValue(diagnoseTransformLimit);
++            if (diagnosticsLimit is < 1 or > 10000)
++            {
++                throw new ArgumentOutOfRangeException(
++                    nameof(diagnosticsLimit),
++                    diagnosticsLimit,
++                    "Transform diagnostics limit must be between 1 and 10000.");
++            }
+             var options = ExportOptions.Create(
+                 parseResult.GetRequiredValue(replayPath).FullName,
+                 parseResult.GetRequiredValue(outputDirectory).FullName,
+-                profileName);
+-            using var application = new CliApplication();
++                profileName,
++                parseResult.GetValue(diagnoseTransform)?.FullName,
++                diagnosticsLimit,
++                parseResult.GetValue(diagnoseChinaAlias));
++            using var application = new CliApplication(options.TransformDiagnosticsPath is not null);
+             return application.ExportReplay(options);
+         });
+         return command;
+@@ -70,4 +98,31 @@ internal static class CliCommandFactory
+         argument.AcceptExistingOnly();
+         return argument;
+     }
++
++    private static Command CreateTransformFirstBlockCommand()
++    {
++        var rawHex = new Argument<string>("raw-hex")
++        {
++            Description = "At least eight ciphertext bytes as hexadecimal text.",
++        };
++        var seed = new Argument<uint>("seed")
++        {
++            Description = "Payload seed (bitCount XOR actorNetGuid).",
++        };
++        var expectedHex = new Option<string?>("--expected")
++        {
++            Description = "Optional expected eight-byte plaintext prefix for distance scoring.",
++        };
++        var command = new Command(
++            "transform-first-block",
++            "Apply every historical Global first-block transform for replay-only analysis.");
++        command.Arguments.Add(rawHex);
++        command.Arguments.Add(seed);
++        command.Options.Add(expectedHex);
++        command.SetAction(parseResult => TransformFirstBlockRunner.Run(
++            parseResult.GetRequiredValue(rawHex),
++            parseResult.GetRequiredValue(seed),
++            parseResult.GetValue(expectedHex)));
++        return command;
++    }
+ }
 diff --git a/src/CliReader/JsonExport/ExportOptions.cs b/src/CliReader/JsonExport/ExportOptions.cs
-index 0bb281d..0e9345c 100644
+index 0bb281d..ba9994e 100644
 --- a/src/CliReader/JsonExport/ExportOptions.cs
 +++ b/src/CliReader/JsonExport/ExportOptions.cs
-@@ -6,7 +6,8 @@ internal sealed record ExportOptions(
+@@ -6,12 +6,19 @@ internal sealed record ExportOptions(
      string ReplayPath,
      string OutputDirectory,
      string ProfileName,
 -    ParseProfile ParseProfile)
 +    ParseProfile ParseProfile,
-+    bool CompactOutput)
++    bool CompactOutput,
++    string? TransformDiagnosticsPath,
++    int TransformDiagnosticsLimit,
++    bool EnableDiagnosticChinaAlias)
  {
      public static ExportOptions Create(
          string replayPath,
-@@ -21,11 +22,12 @@ internal sealed record ExportOptions(
+         string outputDirectory,
+-        string profileName)
++        string profileName,
++        string? transformDiagnosticsPath = null,
++        int transformDiagnosticsLimit = 1000,
++        bool enableDiagnosticChinaAlias = false)
+     {
+         var parseProfile = profileName switch
+         {
+@@ -21,11 +28,20 @@ internal sealed record ExportOptions(
                  EnabledCategories = ExportCategory.All,
                  CaptureDiagnosticFields = true,
              },
@@ -41,17 +169,25 @@ index 0bb281d..0e9345c 100644
 +                "Export profile must be 'default', 'viewer', or 'valcoach'."),
          };
 -        return new ExportOptions(replayPath, outputDirectory, profileName, parseProfile);
-+        return new ExportOptions(replayPath, outputDirectory, profileName, parseProfile, profileName == "valcoach");
++        return new ExportOptions(
++            replayPath,
++            outputDirectory,
++            profileName,
++            parseProfile,
++            profileName == "valcoach",
++            transformDiagnosticsPath,
++            transformDiagnosticsLimit,
++            enableDiagnosticChinaAlias);
      }
  }
 diff --git a/src/CliReader/JsonExport/ReplayEventJsonWriter.cs b/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
-index fa6744f..2c2aa4d 100644
+index fa6744f..78bbee0 100644
 --- a/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
 +++ b/src/CliReader/JsonExport/ReplayEventJsonWriter.cs
 @@ -158,6 +158,21 @@ internal sealed class ReplayEventJsonWriter
          writer.WriteEndObject();
      }
-
+ 
 +    public void WriteCompactMovement(
 +        Utf8JsonWriter writer, RemoteCharacterMovementReceived movement)
 +    {
@@ -70,18 +206,81 @@ index fa6744f..2c2aa4d 100644
      private static void WriteEquippable(Utf8JsonWriter writer, ValorantEquippable? equippable)
      {
          if (equippable is null)
+diff --git a/src/CliReader/JsonExport/ReplayExportManifestWriter.cs b/src/CliReader/JsonExport/ReplayExportManifestWriter.cs
+index c0ff9cf..8facd78 100644
+--- a/src/CliReader/JsonExport/ReplayExportManifestWriter.cs
++++ b/src/CliReader/JsonExport/ReplayExportManifestWriter.cs
+@@ -91,6 +91,33 @@ internal sealed class ReplayExportManifestWriter
+         writer.WriteNumber("partial_error_count", stats.PartialErrorCount);
+         writer.WriteNumber("total_packet_bytes", stats.TotalPacketBytes);
+         writer.WriteEndObject();
++
++        var bunchStats = context.BunchPayloadStats;
++        writer.WriteStartObject("pipeline");
++        writer.WriteNumber("replay_chunk_count", context.ReplayInfo.Chunks.Count);
++        writer.WriteNumber("replay_data_chunk_count", context.ReplayInfo.DataChunks.Count);
++        writer.WriteNumber("playback_packet_count", bunchStats.PacketCount);
++        writer.WriteNumber("raw_packet_count", stats.PacketCount);
++        writer.WriteNumber("bunch_count", bunchStats.BunchCount);
++        writer.WriteNumber("payload_bunch_count", bunchStats.PayloadBunchCount);
++        writer.WriteNumber("package_map_export_bunch_count", bunchStats.PackageMapExportBunchCount);
++        writer.WriteNumber("exported_net_guid_count", bunchStats.ExportedNetGuidCount);
++        writer.WriteNumber("must_be_mapped_guid_count", bunchStats.MustBeMappedGuidCount);
++        writer.WriteNumber("actor_channel_open_count", bunchStats.ActorChannelOpenCount);
++        writer.WriteNumber("actor_channel_close_count", bunchStats.ActorChannelCloseCount);
++        writer.WriteNumber("content_block_count", bunchStats.ContentBlockCount);
++        writer.WriteNumber("actor_content_block_count", bunchStats.ActorContentBlockCount);
++        writer.WriteNumber("subobject_content_block_count", bunchStats.SubobjectContentBlockCount);
++        writer.WriteNumber("rep_layout_content_block_count", bunchStats.RepLayoutContentBlockCount);
++        writer.WriteNumber("resolved_export_group_count", context.NetGuidCache.ExportGroupsByPath.Count);
++        writer.WriteNumber("content_payload_bits_parsed", bunchStats.ContentPayloadBitsParsed);
++        writer.WriteNumber("content_payload_bits_skipped", bunchStats.ContentPayloadBitsSkipped);
++        writer.WriteNumber("malformed_payload_count", bunchStats.MalformedPayloadCount);
++        writer.WriteNumber("malformed_payload_exception_count", bunchStats.MalformedPayloadExceptionCount);
++        writer.WriteNumber("malformed_content_block_count", bunchStats.MalformedContentBlockCount);
++        writer.WriteNumber("partial_error_count", bunchStats.PartialErrorCount);
++        writer.WriteNumber("trailing_payload_count", bunchStats.TrailingPayloadCount);
++        writer.WriteEndObject();
+     }
+ 
+     private static void WriteCounts(Utf8JsonWriter writer, ReplayExportStatistics statistics)
 diff --git a/src/CliReader/JsonExport/ReplayExportRunner.cs b/src/CliReader/JsonExport/ReplayExportRunner.cs
-index e9fde78..e99d919 100644
+index e9fde78..2b062bf 100644
 --- a/src/CliReader/JsonExport/ReplayExportRunner.cs
 +++ b/src/CliReader/JsonExport/ReplayExportRunner.cs
-@@ -30,7 +30,7 @@ internal sealed class ReplayExportRunner
+@@ -1,6 +1,7 @@
+ using System.Security.Cryptography;
+ using Microsoft.Extensions.Logging;
+ using Replay.Encoding.Archives;
++using Replay.Unreal.Bunches.Payload;
+ using Replay.Unreal.Readers;
+ using Replay.Valorant;
+ 
+@@ -30,7 +31,13 @@ internal sealed class ReplayExportRunner
          var sourceSha256 = Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();
          file.Position = 0;
-
+ 
 -        var sink = ReplayExportSink.Create(outputDirectory);
 +        var sink = ReplayExportSink.Create(outputDirectory, options.CompactOutput);
++        var transformDiagnostics = options.TransformDiagnosticsPath is null
++            ? null
++            : new TransformDiagnosticOptions(
++                options.TransformDiagnosticsPath,
++                options.ReplayPath,
++                options.TransformDiagnosticsLimit);
          ReplayReaderContext context;
          try
+         {
+@@ -38,7 +45,9 @@ internal sealed class ReplayExportRunner
+             context = ValorantReplayReader.CreateDefault(
+                 _loggerFactory,
+                 sink,
+-                options.ParseProfile).Read(archive);
++                options.ParseProfile,
++                options.EnableDiagnosticChinaAlias,
++                transformDiagnostics).Read(archive);
+         }
+         finally
          {
 diff --git a/src/CliReader/JsonExport/ReplayExportSink.cs b/src/CliReader/JsonExport/ReplayExportSink.cs
 index d9a85fb..cc4a90e 100644
@@ -99,7 +298,7 @@ index d9a85fb..cc4a90e 100644
 +    private readonly bool _compactOutput;
 +    private readonly Dictionary<uint, int> _lastMovementTimeByCharacter = [];
 +    private const int CompactMovementIntervalMs = 100;
-
+ 
      internal ReplayExportSink(
          NdjsonWriter events,
          NdjsonWriter movement,
@@ -112,9 +311,9 @@ index d9a85fb..cc4a90e 100644
          _eventWriter = eventWriter;
 +        _compactOutput = compactOutput;
      }
-
+ 
      public ReplayExportStatistics Statistics { get; } = new();
-
+ 
 -    public static ReplayExportSink Create(string outputDirectory)
 +    public static ReplayExportSink Create(string outputDirectory, bool compactOutput = false)
      {
@@ -145,7 +344,7 @@ index d9a85fb..cc4a90e 100644
              case ValorantShotReceived shot:
                  _events.Write(writer => _eventWriter.WriteValorantShot(writer, shot));
 @@ -75,7 +85,26 @@ internal sealed class ReplayExportSink :
-
+ 
      public void EmitRemoteCharacterMovement(RemoteCharacterMovementReceived movement)
      {
 -        _movement.Write(writer => _eventWriter.WriteMovement(writer, movement));
@@ -171,11 +370,11 @@ index d9a85fb..cc4a90e 100644
 +        });
          Statistics.MovementCount++;
      }
-
+ 
 @@ -99,7 +128,18 @@ internal sealed class ReplayExportSink :
              return;
          }
-
+ 
 +        if (_compactOutput && !ShouldEmitCompact(exportGroup.Categories, true))
 +        {
 +            return;
@@ -191,3 +390,902 @@ index d9a85fb..cc4a90e 100644
 +        return wasDecoded && (categories & nonMovement) != ExportCategory.None;
 +    }
  }
+diff --git a/src/CliReader/TransformFirstBlockRunner.cs b/src/CliReader/TransformFirstBlockRunner.cs
+new file mode 100644
+index 0000000..015667a
+--- /dev/null
++++ b/src/CliReader/TransformFirstBlockRunner.cs
+@@ -0,0 +1,76 @@
++using System.Numerics;
++using System.Text.Json;
++using Replay.Encoding.Archives;
++using Replay.Encoding.PayloadEncryption;
++using Replay.Encoding.PayloadEncryption.VersionedTransforms;
++
++namespace CliReader;
++
++internal static class TransformFirstBlockRunner
++{
++    public static int Run(string rawHex, uint seed, string? expectedHex)
++    {
++        byte[] raw;
++        byte[]? expected = null;
++        try
++        {
++            raw = Convert.FromHexString(rawHex);
++            expected = expectedHex is null ? null : Convert.FromHexString(expectedHex);
++        }
++        catch (FormatException exception)
++        {
++            Console.Error.WriteLine(exception.Message);
++            return 2;
++        }
++
++        if (raw.Length < 8 || (expected is not null && expected.Length != 8))
++        {
++            Console.Error.WriteLine("raw-hex must contain at least eight bytes; --expected must contain exactly eight.");
++            return 2;
++        }
++
++        IPayloadTransform[] transforms =
++        [
++            new ValorantSeededTransform12_10(),
++            new ValorantSeededTransform12_11(),
++            new ValorantSeededTransform13_00(),
++            new ValorantSeededTransform13_01(),
++            new ValorantSeededTransform13_02(),
++            new ValorantSeededTransform13_04(),
++            new ValorantSeededTransform13_05(),
++        ];
++        var results = transforms.Select(transform => Probe(transform, raw, seed, expected)).ToArray();
++        Console.WriteLine(JsonSerializer.Serialize(new
++        {
++            seed,
++            ciphertext_hex = Convert.ToHexString(raw.AsSpan(0, 8)),
++            expected_plaintext_hex = expectedHex?.ToUpperInvariant(),
++            candidates = results,
++        }, new JsonSerializerOptions { WriteIndented = true }));
++        return 0;
++    }
++
++    private static object Probe(IPayloadTransform transform, byte[] raw, uint seed, byte[]? expected)
++    {
++        var output = new byte[8];
++        using var input = new BitArchiveReader(raw.AsMemory(0, 8), 64);
++        transform.Apply(input, 64, seed, output);
++        var commonPrefixBytes = expected is null
++            ? (int?)null
++            : output.Zip(expected).TakeWhile(pair => pair.First == pair.Second).Count();
++        var hammingDistanceBits = expected is null
++            ? (int?)null
++            : output.Zip(expected).Sum(pair => BitOperations.PopCount((uint)(pair.First ^ pair.Second)));
++        return new
++        {
++            transform = transform.GetType().Name,
++            replay_versions = transform.SupportedReplayVersions,
++            decoded_hex = Convert.ToHexString(output),
++            exact_match = expected is null ? (bool?)null : output.SequenceEqual(expected),
++            common_prefix_bytes = commonPrefixBytes,
++            hamming_distance_bits = hammingDistanceBits,
++            zero_byte_count = output.Count(value => value == 0),
++            high_byte_count = output.Count(value => value >= 0x80),
++        };
++    }
++}
+diff --git a/src/Replay.Encoding/PayloadEncryption/PayloadTransformRegistry.cs b/src/Replay.Encoding/PayloadEncryption/PayloadTransformRegistry.cs
+index 0de12f0..116024b 100644
+--- a/src/Replay.Encoding/PayloadEncryption/PayloadTransformRegistry.cs
++++ b/src/Replay.Encoding/PayloadEncryption/PayloadTransformRegistry.cs
+@@ -22,15 +22,26 @@ public sealed class PayloadTransformRegistry
+         }
+     }
+ 
+-    public static PayloadTransformRegistry CreateDefault() => new([
+-        new ValorantSeededTransform12_10(),
+-        new ValorantSeededTransform12_11(),
+-        new ValorantSeededTransform13_00(),
+-        new ValorantSeededTransform13_01(),
+-        new ValorantSeededTransform13_02(),
+-        new ValorantSeededTransform13_04(),
+-        new ValorantSeededTransform13_05(),
+-    ]);
++    public static PayloadTransformRegistry CreateDefault(bool includeDiagnosticChinaAliases = false)
++    {
++        List<IPayloadTransform> transforms =
++        [
++            new ValorantSeededTransform12_10(),
++            new ValorantSeededTransform12_11(),
++            new ValorantSeededTransform13_00(),
++            new ValorantSeededTransform13_01(),
++            new ValorantSeededTransform13_02(),
++            new ValorantSeededTransform13_04(),
++            new ValorantSeededTransform13_05(),
++        ];
++        if (includeDiagnosticChinaAliases)
++        {
++            transforms.Add(new ValorantSeededTransformChina13_04DiagnosticAlias());
++            transforms.Add(new ValorantSeededTransformChina13_05DiagnosticAlias());
++        }
++
++        return new PayloadTransformRegistry(transforms);
++    }
+ 
+     public IPayloadTransform GetRequired(string replayVersion)
+     {
+diff --git a/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransformChinaDiagnosticAliases.cs b/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransformChinaDiagnosticAliases.cs
+new file mode 100644
+index 0000000..adcae49
+--- /dev/null
++++ b/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransformChinaDiagnosticAliases.cs
+@@ -0,0 +1,33 @@
++using Replay.Encoding.Archives;
++
++namespace Replay.Encoding.PayloadEncryption.VersionedTransforms;
++
++internal sealed class ValorantSeededTransformChina13_04DiagnosticAlias : IPayloadTransform
++{
++    private readonly ValorantSeededTransform13_04 _inner = new();
++
++    public IReadOnlyCollection<string> SupportedReplayVersions { get; } =
++        ["++Ares-Core+release-china-13.04"];
++
++    public int GetOutputByteCount(int bitCount) => _inner.GetOutputByteCount(bitCount);
++
++    public void Apply(FBitArchive input, uint seed, Span<byte> output) => _inner.Apply(input, seed, output);
++
++    public void Apply(FBitArchive input, int bitCount, uint seed, Span<byte> output) =>
++        _inner.Apply(input, bitCount, seed, output);
++}
++
++internal sealed class ValorantSeededTransformChina13_05DiagnosticAlias : IPayloadTransform
++{
++    private readonly ValorantSeededTransform13_05 _inner = new();
++
++    public IReadOnlyCollection<string> SupportedReplayVersions { get; } =
++        ["++Ares-Core+release-china-13.05"];
++
++    public int GetOutputByteCount(int bitCount) => _inner.GetOutputByteCount(bitCount);
++
++    public void Apply(FBitArchive input, uint seed, Span<byte> output) => _inner.Apply(input, seed, output);
++
++    public void Apply(FBitArchive input, int bitCount, uint seed, Span<byte> output) =>
++        _inner.Apply(input, bitCount, seed, output);
++}
+diff --git a/src/Replay.Unreal/Bunches/ContentBlockFramer.cs b/src/Replay.Unreal/Bunches/ContentBlockFramer.cs
+index 8a9b95f..912d12d 100644
+--- a/src/Replay.Unreal/Bunches/ContentBlockFramer.cs
++++ b/src/Replay.Unreal/Bunches/ContentBlockFramer.cs
+@@ -22,6 +22,7 @@ internal sealed class ContentBlockFramer
+     private readonly ExportBindingRegistry _bindingRegistry;
+     private readonly IPropertyPayloadDecoder? _propertyPayloadDecoder;
+     private readonly ILoggerFactory? _loggerFactory;
++    private readonly TransformSampleWriter? _transformSampleWriter;
+ 
+     public ContentBlockFramer(
+         PackageMapReader packageMapReader,
+@@ -37,14 +38,16 @@ internal sealed class ContentBlockFramer
+             fieldPayloadParser,
+             bindingRegistry,
+             propertyPayloadDecoder,
+-            loggerFactory: null)
++            loggerFactory: null,
++            transformDiagnostics: null)
+     {
+     }
+ 
+     public ContentBlockFramer(
+         PackageMapReader packageMapReader,
+         ReplayReaderContext context,
+-        IPropertyPayloadDecoder? propertyPayloadDecoder = null)
++        IPropertyPayloadDecoder? propertyPayloadDecoder = null,
++        TransformDiagnosticOptions? transformDiagnostics = null)
+         : this(
+             packageMapReader,
+             context.NetGuidCache,
+@@ -52,7 +55,8 @@ internal sealed class ContentBlockFramer
+             new FieldPayloadParser(),
+             context.ExportBindingRegistry,
+             propertyPayloadDecoder,
+-            context.LoggerFactory)
++            context.LoggerFactory,
++            transformDiagnostics)
+     {
+     }
+ 
+@@ -63,7 +67,8 @@ internal sealed class ContentBlockFramer
+         FieldPayloadParser fieldPayloadParser,
+         ExportBindingRegistry? bindingRegistry,
+         IPropertyPayloadDecoder? propertyPayloadDecoder,
+-        ILoggerFactory? loggerFactory)
++        ILoggerFactory? loggerFactory,
++        TransformDiagnosticOptions? transformDiagnostics)
+     {
+         _headerReader = new ContentBlockHeaderReader(packageMapReader);
+         _pathResolver = new ContentBlockPathResolver(netGuidCache);
+@@ -73,6 +78,7 @@ internal sealed class ContentBlockFramer
+         _bindingRegistry = bindingRegistry ?? new ExportBindingRegistry();
+         _propertyPayloadDecoder = propertyPayloadDecoder;
+         _loggerFactory = loggerFactory;
++        _transformSampleWriter = transformDiagnostics is null ? null : new TransformSampleWriter(transformDiagnostics);
+     }
+ 
+     public void FrameContentBlocks(
+@@ -242,27 +248,62 @@ internal sealed class ContentBlockFramer
+             return;
+         }
+ 
+-        using var decodedPayload = DecodeContentPayload(payload, payloadBits, channel, replayVersionBranch);
+-        var context = CreateDecodeContext(exportGroupPath, channel, header, timeSeconds, packetId);
+-        var beforeRepLayout = decodedPayload.BitsRemaining;
+-        var result = _fieldPayloadParser.ParseRepLayoutProperties(decodedPayload, boundGroup, ref context);
+-        var parsedBits = checked((int)(beforeRepLayout - decodedPayload.BitsRemaining));
+-        stats.ContentPayloadBitsParsed += parsedBits;
+-
+-        EmitExportGroupReceived(
++        var sample = BeginTransformSample(
++            payload,
++            payloadBits,
++            header,
++            channel,
++            replayVersionBranch,
+             timeSeconds,
+             packetId,
+-            channel,
+-            header,
+             exportGroupPath,
+-            boundGroup.SourceDescriptor.Kind,
+-            boundGroup.Categories,
+-            payloadBits,
+-            parsedBits,
+-            wasDecoded: true,
+-            result.Payload,
+-            result.DecodedFieldCount,
+-            result.DiagnosticFields);
++            ResolveClassPath(header, channel, header.IsActor ? channel.ArchetypeNetGuid : header.ClassNetGuid));
++        FBitArchive? decodedPayload = null;
++        byte[]? decodedBytes = null;
++        long beforeRepLayout = 0;
++        try
++        {
++            decodedPayload = DecodeContentPayload(payload, payloadBits, channel, replayVersionBranch);
++            decodedBytes = sample is null ? null : TransformSampleWriter.CopyBits(decodedPayload, payloadBits);
++            var context = CreateDecodeContext(exportGroupPath, channel, header, timeSeconds, packetId);
++            beforeRepLayout = decodedPayload.BitsRemaining;
++            var result = _fieldPayloadParser.ParseRepLayoutProperties(decodedPayload, boundGroup, ref context);
++            var parsedBits = checked((int)(beforeRepLayout - decodedPayload.BitsRemaining));
++            stats.ContentPayloadBitsParsed += parsedBits;
++            _transformSampleWriter?.Complete(
++                sample,
++                decodedBytes,
++                parsedBits,
++                result.DecodedFieldCount,
++                result.DiagnosticFields);
++
++            EmitExportGroupReceived(
++                timeSeconds,
++                packetId,
++                channel,
++                header,
++                exportGroupPath,
++                boundGroup.SourceDescriptor.Kind,
++                boundGroup.Categories,
++                payloadBits,
++                parsedBits,
++                wasDecoded: true,
++                result.Payload,
++                result.DecodedFieldCount,
++                result.DiagnosticFields);
++        }
++        catch (Exception exception)
++        {
++            var parsedBits = decodedPayload is null || beforeRepLayout == 0
++                ? 0
++                : checked((int)(beforeRepLayout - decodedPayload.BitsRemaining));
++            _transformSampleWriter?.Complete(sample, decodedBytes, parsedBits, 0, [], exception);
++            throw;
++        }
++        finally
++        {
++            decodedPayload?.Dispose();
++        }
+     }
+ 
+     private void FrameClassNetCacheContentBlock(
+@@ -322,48 +363,115 @@ internal sealed class ContentBlockFramer
+             return;
+         }
+ 
+-        using var decodedPayload = DecodeContentPayload(payload, payloadBits, channel, replayVersionBranch);
+-        var context = CreateDecodeContext(classPath, channel, header, timeSeconds, packetId);
+-        var beforeClassNetCache = decodedPayload.BitsRemaining;
+-        var invocations = _fieldPayloadParser.ParseClassNetCachePayload(decodedPayload, boundCache, ref context);
+-        var parsedBits = checked((int)(beforeClassNetCache - decodedPayload.BitsRemaining));
+-        stats.ContentPayloadBitsParsed += parsedBits;
+-
+-        EmitExportGroupReceived(
++        var sample = BeginTransformSample(
++            payload,
++            payloadBits,
++            header,
++            channel,
++            replayVersionBranch,
+             timeSeconds,
+             packetId,
+-            channel,
+-            header,
+-            classPath,
+-            ExportGroupKind.ClassNetCache,
+-            ExportCategory.None,
+-            payloadBits,
+-            parsedBits,
+-            wasDecoded: true,
+-            payload: null,
+-            decodedFieldCount: 0,
+-            diagnosticFields: []);
+-
+-        foreach (var invocation in invocations)
++            exportGroupPath: null,
++            classPath);
++        FBitArchive? decodedPayload = null;
++        byte[]? decodedBytes = null;
++        long beforeClassNetCache = 0;
++        try
+         {
+-            _eventSink.Emit(new RpcReceived(
++            decodedPayload = DecodeContentPayload(payload, payloadBits, channel, replayVersionBranch);
++            decodedBytes = sample is null ? null : TransformSampleWriter.CopyBits(decodedPayload, payloadBits);
++            var context = CreateDecodeContext(classPath, channel, header, timeSeconds, packetId);
++            beforeClassNetCache = decodedPayload.BitsRemaining;
++            var invocations = _fieldPayloadParser.ParseClassNetCachePayload(decodedPayload, boundCache, ref context);
++            var parsedBits = checked((int)(beforeClassNetCache - decodedPayload.BitsRemaining));
++            stats.ContentPayloadBitsParsed += parsedBits;
++            var decodedFieldCount = invocations.Sum(invocation => invocation.DecodedFieldCount);
++            var diagnosticFields = invocations.SelectMany(invocation => invocation.DiagnosticFields).ToArray();
++            _transformSampleWriter?.Complete(
++                sample,
++                decodedBytes,
++                parsedBits,
++                decodedFieldCount,
++                diagnosticFields);
++
++            EmitExportGroupReceived(
+                 timeSeconds,
+                 packetId,
+-                channel.ActorNetGuid.Value,
+-                GetObjectNetGuid(header, channel).Value,
+-                channel.ChannelIndex,
++                channel,
++                header,
+                 classPath,
+-                invocation.Name,
+-                invocation.FunctionExportPath,
+-                invocation.Handle,
+-                invocation.Categories,
+-                invocation.PayloadBits,
+-                invocation.ParsedBits,
+-                invocation.WasDecoded,
+-                invocation.Payload,
+-                invocation.DecodedFieldCount,
+-                invocation.DiagnosticFields));
++                ExportGroupKind.ClassNetCache,
++                ExportCategory.None,
++                payloadBits,
++                parsedBits,
++                wasDecoded: true,
++                payload: null,
++                decodedFieldCount,
++                diagnosticFields);
++
++            foreach (var invocation in invocations)
++            {
++                _eventSink.Emit(new RpcReceived(
++                    timeSeconds,
++                    packetId,
++                    channel.ActorNetGuid.Value,
++                    GetObjectNetGuid(header, channel).Value,
++                    channel.ChannelIndex,
++                    classPath,
++                    invocation.Name,
++                    invocation.FunctionExportPath,
++                    invocation.Handle,
++                    invocation.Categories,
++                    invocation.PayloadBits,
++                    invocation.ParsedBits,
++                    invocation.WasDecoded,
++                    invocation.Payload,
++                    invocation.DecodedFieldCount,
++                    invocation.DiagnosticFields));
++            }
++        }
++        catch (Exception exception)
++        {
++            var parsedBits = decodedPayload is null || beforeClassNetCache == 0
++                ? 0
++                : checked((int)(beforeClassNetCache - decodedPayload.BitsRemaining));
++            _transformSampleWriter?.Complete(sample, decodedBytes, parsedBits, 0, [], exception);
++            throw;
++        }
++        finally
++        {
++            decodedPayload?.Dispose();
++        }
++    }
++
++    private PendingTransformSample? BeginTransformSample(
++        FBitArchive payload,
++        int payloadBits,
++        ContentBlockHeader header,
++        ActorChannelState channel,
++        string replayVersionBranch,
++        float timeSeconds,
++        int packetId,
++        string? exportGroupPath,
++        string? classPath)
++    {
++        if (_transformSampleWriter is null || _propertyPayloadDecoder is null || !channel.ActorNetGuid.IsValid)
++        {
++            return null;
+         }
++
++        return _transformSampleWriter.Begin(
++            payload,
++            payloadBits,
++            replayVersionBranch,
++            timeSeconds,
++            packetId,
++            channel.ChannelIndex,
++            channel.ActorNetGuid.Value,
++            GetObjectNetGuid(header, channel).Value,
++            exportGroupPath,
++            classPath,
++            _propertyPayloadDecoder.GetTransformName(replayVersionBranch));
+     }
+     private static void SkipContentPayload(FBitArchive payload, int bitCount, BunchPayloadStats stats)
+     {
+diff --git a/src/Replay.Unreal/Bunches/Payload/BunchPayloadPipeline.cs b/src/Replay.Unreal/Bunches/Payload/BunchPayloadPipeline.cs
+index cbadeb1..d5d07dc 100644
+--- a/src/Replay.Unreal/Bunches/Payload/BunchPayloadPipeline.cs
++++ b/src/Replay.Unreal/Bunches/Payload/BunchPayloadPipeline.cs
+@@ -35,12 +35,13 @@ public sealed class BunchPayloadPipeline
+     {
+         var packageMapReader = new PackageMapReader(context.NetGuidCache);
+         var partialBunchAccumulator = new PartialBunchAccumulator();
+-        var propertyPayloadDecoder = new PropertyPayloadDecoder(PayloadTransformSupport.DefaultRegistry);
++        var propertyPayloadDecoder = new PropertyPayloadDecoder(context.PayloadTransforms);
+ 
+         var contentBlockFramer = new ContentBlockFramer(
+             packageMapReader,
+             context,
+-            propertyPayloadDecoder);
++            propertyPayloadDecoder,
++            context.TransformDiagnostics);
+         var newActorSerializer = new NewActorSerializer(packageMapReader, context.NetGuidCache);
+         var lifecycleService = new ActorChannelLifecycleService(context);
+ 
+diff --git a/src/Replay.Unreal/Bunches/Payload/IPropertyPayloadDecoder.cs b/src/Replay.Unreal/Bunches/Payload/IPropertyPayloadDecoder.cs
+index 3540755..58823ae 100644
+--- a/src/Replay.Unreal/Bunches/Payload/IPropertyPayloadDecoder.cs
++++ b/src/Replay.Unreal/Bunches/Payload/IPropertyPayloadDecoder.cs
+@@ -5,4 +5,6 @@ namespace Replay.Unreal.Bunches.Payload;
+ internal interface IPropertyPayloadDecoder
+ {
+     FBitArchive Decode(FBitArchive payload, int bitCount, uint actorNetGuid, string replayVersion);
++
++    string GetTransformName(string replayVersion);
+ }
+diff --git a/src/Replay.Unreal/Bunches/Payload/PropertyPayloadDecoder.cs b/src/Replay.Unreal/Bunches/Payload/PropertyPayloadDecoder.cs
+index a0379cf..1f9b442 100644
+--- a/src/Replay.Unreal/Bunches/Payload/PropertyPayloadDecoder.cs
++++ b/src/Replay.Unreal/Bunches/Payload/PropertyPayloadDecoder.cs
+@@ -25,11 +25,14 @@ internal sealed class PropertyPayloadDecoder : IPropertyPayloadDecoder
+         }
+ 
+         var seed = checked((uint)bitCount) ^ actorNetGuid;
++
+         transform.Apply(payload, bitCount, seed, _decodeBuffer.AsSpan(0, byteCount));
+ 
+         return new BitArchiveReader(_decodeBuffer.AsMemory(0, byteCount), bitCount);
+     }
+ 
++    public string GetTransformName(string replayVersion) => GetTransform(replayVersion).GetType().Name;
++
+     private IPayloadTransform GetTransform(string replayVersion)
+     {
+         if (replayVersion == _cachedReplayVersion && _cachedTransform is not null)
+diff --git a/src/Replay.Unreal/Bunches/Payload/Stages/ContentBlocksBunchStage.cs b/src/Replay.Unreal/Bunches/Payload/Stages/ContentBlocksBunchStage.cs
+index af514e1..80855af 100644
+--- a/src/Replay.Unreal/Bunches/Payload/Stages/ContentBlocksBunchStage.cs
++++ b/src/Replay.Unreal/Bunches/Payload/Stages/ContentBlocksBunchStage.cs
+@@ -51,5 +51,18 @@ internal sealed class ContentBlocksBunchStage : IBunchPayloadStage
+             context.Stats.MalformedPayloadExceptionCount++;
+             return BunchStageResult.Stop;
+         }
++        catch (Exception exception) when (context.ReaderContext.TransformDiagnostics is not null)
++        {
++            context.ReaderContext.LoggerFactory?
++                .CreateLogger<ContentBlocksBunchStage>()
++                .LogError(
++                    exception,
++                    "Transform diagnostic mode isolated a failed content block in packet {PacketId} on channel {ChannelIndex}.",
++                    context.Header.PacketId,
++                    context.Header.ChIndex);
++            context.Stats.MalformedPayloadCount++;
++            context.Stats.MalformedPayloadExceptionCount++;
++            return BunchStageResult.Stop;
++        }
+     }
+ }
+diff --git a/src/Replay.Unreal/Bunches/Payload/TransformDiagnosticOptions.cs b/src/Replay.Unreal/Bunches/Payload/TransformDiagnosticOptions.cs
+new file mode 100644
+index 0000000..c10a46f
+--- /dev/null
++++ b/src/Replay.Unreal/Bunches/Payload/TransformDiagnosticOptions.cs
+@@ -0,0 +1,6 @@
++namespace Replay.Unreal.Bunches.Payload;
++
++public sealed record TransformDiagnosticOptions(
++    string OutputPath,
++    string ReplayPath,
++    int MaxSamples = 1000);
+diff --git a/src/Replay.Unreal/Bunches/Payload/TransformSampleWriter.cs b/src/Replay.Unreal/Bunches/Payload/TransformSampleWriter.cs
+new file mode 100644
+index 0000000..0ab5171
+--- /dev/null
++++ b/src/Replay.Unreal/Bunches/Payload/TransformSampleWriter.cs
+@@ -0,0 +1,132 @@
++using System.Text.Json;
++using Replay.Encoding.Archives;
++using Replay.Models.Events;
++
++namespace Replay.Unreal.Bunches.Payload;
++
++internal sealed record PendingTransformSample(
++    string ReplayFile,
++    string ReplayBranch,
++    float TimeSeconds,
++    int PacketId,
++    uint ChannelIndex,
++    uint ActorNetGuid,
++    uint ObjectNetGuid,
++    string? ExportGroupPath,
++    string? ClassPath,
++    int PayloadBitCount,
++    uint Seed,
++    string RawCiphertextHex,
++    string SelectedTransform);
++
++internal sealed class TransformSampleWriter
++{
++    private readonly string _outputPath;
++    private readonly string _replayFile;
++    private readonly int _maxSamples;
++    private int _sampleCount;
++
++    public TransformSampleWriter(TransformDiagnosticOptions options)
++    {
++        _outputPath = Path.GetFullPath(options.OutputPath);
++        _replayFile = Path.GetFileName(options.ReplayPath);
++        _maxSamples = options.MaxSamples;
++        var directory = Path.GetDirectoryName(_outputPath);
++        if (!string.IsNullOrEmpty(directory))
++        {
++            Directory.CreateDirectory(directory);
++        }
++
++        File.WriteAllText(_outputPath, string.Empty);
++    }
++
++    public PendingTransformSample? Begin(
++        FBitArchive payload,
++        int payloadBitCount,
++        string replayBranch,
++        float timeSeconds,
++        int packetId,
++        uint channelIndex,
++        uint actorNetGuid,
++        uint objectNetGuid,
++        string? exportGroupPath,
++        string? classPath,
++        string selectedTransform)
++    {
++        if (_sampleCount >= _maxSamples || payloadBitCount <= 0)
++        {
++            return null;
++        }
++
++        _sampleCount++;
++        var rawBytes = CopyBits(payload, payloadBitCount);
++        return new PendingTransformSample(
++            _replayFile,
++            replayBranch,
++            timeSeconds,
++            packetId,
++            channelIndex,
++            actorNetGuid,
++            objectNetGuid,
++            exportGroupPath,
++            classPath,
++            payloadBitCount,
++            checked((uint)payloadBitCount) ^ actorNetGuid,
++            Convert.ToHexString(rawBytes),
++            selectedTransform);
++    }
++
++    public void Complete(
++        PendingTransformSample? sample,
++        byte[]? decodedBytes,
++        int parsedBits,
++        int decodedFieldCount,
++        IReadOnlyList<DecodedReplayField> diagnosticFields,
++        Exception? exception = null)
++    {
++        if (sample is null)
++        {
++            return;
++        }
++
++        var line = JsonSerializer.Serialize(new
++        {
++            replay_file = sample.ReplayFile,
++            replay_branch = sample.ReplayBranch,
++            time_seconds = sample.TimeSeconds,
++            packet_id = sample.PacketId,
++            channel_index = sample.ChannelIndex,
++            actor_net_guid = sample.ActorNetGuid,
++            object_net_guid = sample.ObjectNetGuid,
++            export_group_path = sample.ExportGroupPath,
++            class_path = sample.ClassPath,
++            payload_bit_count = sample.PayloadBitCount,
++            seed = sample.Seed,
++            raw_ciphertext_hex = sample.RawCiphertextHex,
++            selected_transform = sample.SelectedTransform,
++            decoded_hex = decodedBytes is null ? null : Convert.ToHexString(decodedBytes),
++            parsed_bits = parsedBits,
++            decoded_field_count = decodedFieldCount,
++            diagnostic_fields = diagnosticFields.Select(field => new
++            {
++                handle = field.Handle,
++                name = field.Name,
++                export_name = field.ExportName,
++                categories = field.Categories.ToString(),
++                value_kind = field.Value.Kind.ToString(),
++            }),
++            malformed = exception is not null,
++            exception_type = exception?.GetType().FullName,
++            exception_message = exception?.Message,
++        });
++        File.AppendAllText(_outputPath, line + Environment.NewLine);
++    }
++
++    public static byte[] CopyBits(FBitArchive archive, int bitCount)
++    {
++        var bytes = new byte[(bitCount + 7) / 8];
++        archive.CopyBitsTo(bytes, bitCount);
++        archive.Seek(-bitCount, SeekOrigin.Current);
++        return bytes;
++    }
++}
+diff --git a/src/Replay.Unreal/Packets/PlaybackPacketReader.cs b/src/Replay.Unreal/Packets/PlaybackPacketReader.cs
+index f92a486..ebd861d 100644
+--- a/src/Replay.Unreal/Packets/PlaybackPacketReader.cs
++++ b/src/Replay.Unreal/Packets/PlaybackPacketReader.cs
+@@ -44,7 +44,12 @@ public class PlaybackPacketReader
+ 
+     private void ReadCore()
+     {
+-        PayloadTransformSupport.ValidateSupported(_context.ReplayVersion.Branch);
++        if (!string.IsNullOrWhiteSpace(_context.ReplayVersion.Branch))
++        {
++            _ = PayloadTransformSupport.GetRequired(
++                _context.PayloadTransforms,
++                _context.ReplayVersion.Branch);
++        }
+ 
+         while (!_archive.AtEnd)
+         {
+diff --git a/src/Replay.Unreal/Readers/ReplayReaderContext.cs b/src/Replay.Unreal/Readers/ReplayReaderContext.cs
+index 969d478..5ae0b85 100644
+--- a/src/Replay.Unreal/Readers/ReplayReaderContext.cs
++++ b/src/Replay.Unreal/Readers/ReplayReaderContext.cs
+@@ -1,6 +1,7 @@
+ using Microsoft.Extensions.Logging;
+ using Replay.Encoding.Archives;
+ using Replay.Encoding.Net;
++using Replay.Encoding.PayloadEncryption;
+ using Replay.Models.Descriptors;
+ using Replay.Models.Events;
+ using Replay.Models.Replay;
+@@ -20,7 +21,9 @@ public class ReplayReaderContext
+         DescriptorCatalog? descriptorCatalog = null,
+         ParseProfile? parseProfile = null,
+         ILoggerFactory? loggerFactory = null,
+-        NetGuidCache? netGuidCache = null)
++        NetGuidCache? netGuidCache = null,
++        PayloadTransformRegistry? payloadTransforms = null,
++        TransformDiagnosticOptions? transformDiagnostics = null)
+     {
+         Archive = archive;
+         BunchPayloadStats = new BunchPayloadStats();
+@@ -28,6 +31,8 @@ public class ReplayReaderContext
+         ParseProfile = parseProfile ?? ParseProfile.Default;
+         LoggerFactory = loggerFactory;
+         NetGuidCache = netGuidCache ?? new NetGuidCache();
++        PayloadTransforms = payloadTransforms ?? PayloadTransformRegistry.CreateDefault();
++        TransformDiagnostics = transformDiagnostics;
+         ExportBindingRegistry = new ExportBindingRegistry(descriptorCatalog, ParseProfile);
+         BunchPayloadPipeline = new BunchPayloadPipeline(this);
+     }
+@@ -40,6 +45,8 @@ public class ReplayReaderContext
+     public UEVersion UEVersion { get; set; } = new();
+     public FBinaryArchive ReplayDataStream { get; set; } = new(ReadOnlyMemory<byte>.Empty);
+     public NetGuidCache NetGuidCache { get; }
++    public PayloadTransformRegistry PayloadTransforms { get; }
++    public TransformDiagnosticOptions? TransformDiagnostics { get; }
+     public RawPacketStats PacketStats { get; } = new();
+     internal RawPacketReader RawPacketReader { get; } = new();
+     public BunchPayloadStats BunchPayloadStats { get; }
+diff --git a/src/Replay.Valorant/ValorantReplayReader.cs b/src/Replay.Valorant/ValorantReplayReader.cs
+index aa69024..1b3e5f0 100644
+--- a/src/Replay.Valorant/ValorantReplayReader.cs
++++ b/src/Replay.Valorant/ValorantReplayReader.cs
+@@ -6,6 +6,7 @@ using Replay.Models.Descriptors;
+ using Replay.Models.Errors;
+ using Replay.Models.Events;
+ using Replay.Unreal.Chunks;
++using Replay.Unreal.Bunches.Payload;
+ using Replay.Unreal.Readers;
+ using Replay.Valorant.Combat;
+ using Replay.Valorant.Descriptors;
+@@ -21,13 +22,13 @@ public sealed class ValorantReplayReader
+     private const uint ExpectedUE4Version = 522;
+     private const uint ExpectedUE5Version = 1009;
+ 
+-    private static readonly PayloadTransformRegistry PayloadTransforms = PayloadTransformRegistry.CreateDefault();
+-
+     private readonly ReplayChunkDispatcher _chunkDispatcher;
+     private readonly IReplayEventSink _eventSink;
+     private readonly DescriptorCatalog? _descriptorCatalog;
+     private readonly ParseProfile _parseProfile;
+     private readonly ILoggerFactory? _loggerFactory;
++    private readonly PayloadTransformRegistry _payloadTransforms;
++    private readonly TransformDiagnosticOptions? _transformDiagnostics;
+ 
+     public ValorantReplayReader(
+         IOodleDecompressor? oodleDecompressor = null,
+@@ -35,13 +36,17 @@ public sealed class ValorantReplayReader
+         IReplayEventSink? eventSink = null,
+         DescriptorCatalog? descriptorCatalog = null,
+         ParseProfile? parseProfile = null,
+-        ILoggerFactory? loggerFactory = null)
++        ILoggerFactory? loggerFactory = null,
++        bool enableDiagnosticChinaAliases = false,
++        TransformDiagnosticOptions? transformDiagnostics = null)
+     {
+         _chunkDispatcher = new ReplayChunkDispatcher(oodleDecompressor, replayDataChunkHandler);
+         _eventSink = eventSink ?? NullReplayEventSink.Instance;
+         _descriptorCatalog = descriptorCatalog;
+         _parseProfile = parseProfile ?? ParseProfile.Default;
+         _loggerFactory = loggerFactory;
++        _payloadTransforms = PayloadTransformRegistry.CreateDefault(enableDiagnosticChinaAliases);
++        _transformDiagnostics = transformDiagnostics;
+     }
+     
+     public static ValorantReplayReader CreateMinimal(
+@@ -54,7 +59,9 @@ public sealed class ValorantReplayReader
+     public static ValorantReplayReader CreateDefault(
+         ILoggerFactory? loggerFactory,
+         IReplayEventSink? eventSink = null,
+-        ParseProfile? parseProfile = null)
++        ParseProfile? parseProfile = null,
++        bool enableDiagnosticChinaAliases = false,
++        TransformDiagnosticOptions? transformDiagnostics = null)
+     {
+         return new ValorantReplayReader(
+             new OozSharpOodleDecompressor(),
+@@ -62,7 +69,9 @@ public sealed class ValorantReplayReader
+             eventSink,
+             ValorantDescriptors.CreateCatalog(),
+             parseProfile,
+-            loggerFactory);
++            loggerFactory,
++            enableDiagnosticChinaAliases,
++            transformDiagnostics);
+     }
+ 
+     public ReplayReaderContext Read(FBinaryArchive archive)
+@@ -79,7 +88,9 @@ public sealed class ValorantReplayReader
+             _descriptorCatalog,
+             _parseProfile,
+             _loggerFactory,
+-            netGuidCache);
++            netGuidCache,
++            _payloadTransforms,
++            _transformDiagnostics);
+         context.ReplayInfo = metadata.ReplayInfo;
+         context.ReplayInfoSerializationMetadata = metadata.ReplayInfoSerializationMetadata;
+         context.ReplayHeader = metadata.ReplayHeader;
+@@ -94,7 +105,7 @@ public sealed class ValorantReplayReader
+     public ValorantReplayMetadata ReadMetadata(FBinaryArchive archive) =>
+         CreateMetadata(_chunkDispatcher.ReadPreamble(archive));
+ 
+-    private static ValorantReplayMetadata CreateMetadata(ReplayPreambleReadResult preamble)
++    private ValorantReplayMetadata CreateMetadata(ReplayPreambleReadResult preamble)
+     {
+         var unsupportedReason = GetUnsupportedReason(preamble);
+         return new ValorantReplayMetadata(
+@@ -109,7 +120,7 @@ public sealed class ValorantReplayReader
+             unsupportedReason);
+     }
+ 
+-    private static void EnsureFullParseSupported(ValorantReplayMetadata metadata)
++    private void EnsureFullParseSupported(ValorantReplayMetadata metadata)
+     {
+         if (metadata.FullParseSupportStatus == ValorantReplaySupportStatus.Supported)
+         {
+@@ -120,7 +131,7 @@ public sealed class ValorantReplayReader
+             $"Unsupported VALORANT replay version: {metadata.FullParseUnsupportedReason}");
+     }
+ 
+-    private static string? GetUnsupportedReason(ReplayPreambleReadResult preamble)
++    private string? GetUnsupportedReason(ReplayPreambleReadResult preamble)
+     {
+         var replayVersion = preamble.ReplayVersion;
+         if (replayVersion is not
+@@ -145,7 +156,7 @@ public sealed class ValorantReplayReader
+ 
+         try
+         {
+-            _ = PayloadTransforms.GetRequired(replayVersion.Branch);
++            _ = _payloadTransforms.GetRequired(replayVersion.Branch);
+         }
+         catch (UnsupportedPayloadTransformVersionException)
+         {
+diff --git a/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs b/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs
+index 9df97ec..02a807c 100644
+--- a/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs
++++ b/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs
+@@ -188,6 +188,24 @@ public class ValorantSeededTransformTests
+         Assert.Throws<UnsupportedPayloadTransformVersionException>(() => registry.GetRequired("release-12.12"));
+     }
+ 
++    [TestCase("++Ares-Core+release-china-13.04")]
++    [TestCase("++Ares-Core+release-china-13.05")]
++    public void Registry_DefaultModeRejectsChinaAliases(string replayVersion)
++    {
++        var registry = PayloadTransformRegistry.CreateDefault();
++
++        Assert.Throws<UnsupportedPayloadTransformVersionException>(() => registry.GetRequired(replayVersion));
++    }
++
++    [TestCase("++Ares-Core+release-china-13.04", "ValorantSeededTransformChina13_04DiagnosticAlias")]
++    [TestCase("++Ares-Core+release-china-13.05", "ValorantSeededTransformChina13_05DiagnosticAlias")]
++    public void Registry_DiagnosticModeResolvesExplicitChinaAlias(string replayVersion, string expectedType)
++    {
++        var registry = PayloadTransformRegistry.CreateDefault(includeDiagnosticChinaAliases: true);
++
++        Assert.That(registry.GetRequired(replayVersion).GetType().Name, Is.EqualTo(expectedType));
++    }
++
+     [Test]
+     public void Apply_RejectsTooSmallOutputBuffer()
+     {
+diff --git a/tests/Replay.Unreal.Tests/Bunches/ContentBlockFramerTests.cs b/tests/Replay.Unreal.Tests/Bunches/ContentBlockFramerTests.cs
+index 2df0e79..90b004c 100644
+--- a/tests/Replay.Unreal.Tests/Bunches/ContentBlockFramerTests.cs
++++ b/tests/Replay.Unreal.Tests/Bunches/ContentBlockFramerTests.cs
+@@ -249,6 +249,8 @@ public class ContentBlockFramerTests
+             payload.SkipBits(bitCount);
+             return new BitArchiveReader([0x00, 0x00], 9);
+         }
++
++        public string GetTransformName(string replayVersion) => nameof(CountingPropertyPayloadDecoder);
+     }
+ 
+     private sealed class CapturingReplayEventSink : IReplayEventSink
+@@ -257,4 +259,4 @@ public class ContentBlockFramerTests
+ 
+         public void Emit(ReplayEvent replayEvent) => Events.Add(replayEvent);
+     }
+-}
+\ No newline at end of file
++}

@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "experiment": "china_unmodified_baseline_and_temporary_global_alias",
+  "metadata": {
+    "schema_version": 1,
+    "source": {
+      "filename": "ec9a105c-4fb7-4690-9ad9-29feebd0ea7b.vrf",
+      "sha256": "c918e82c4e090c92b8adc4bfa9798d00a27a99e760ca12e72b1b2363f63928f5",
+      "size_bytes": 62928536
+    },
+    "replay": {
+      "internal_replay_id": "ec9a105c-4fb7-4690-9ad9-29feebd0ea7b",
+      "region": "china",
+      "branch": "++Ares-Core+release-china-13.05",
+      "build_changelist": 5350608,
+      "header_changelist": 2152834256,
+      "version": "5.3.2",
+      "duration_ms": 2341094,
+      "map_asset_path": "/Game/Maps/Triad/Triad",
+      "network_version": 19,
+      "network_checksum": 4217436668,
+      "engine_network_protocol_version": 32,
+      "ue4_version": 522,
+      "ue5_version": 1009,
+      "package_version_license": 80,
+      "platform": "LinuxServer",
+      "header_trailing_bytes": 0
+    },
+    "chunks": {
+      "replay_data": 24,
+      "checkpoints": 23,
+      "events": 269,
+      "unknown": 0
+    },
+    "server_event_counts": {
+      "characterDeath": 176,
+      "characterUltimateUsed": 48,
+      "roundStarted": 23,
+      "spikeDefused": 6,
+      "spikePlanted": 15,
+      "switchTeams": 1
+    },
+    "integrity": {
+      "valid_event_payloads": 269,
+      "invalid_event_payloads": 0,
+      "event_trailing_bytes": 0,
+      "checkpoint_trailing_bytes": 0,
+      "replay_data_trailing_bytes": 0
+    },
+    "server_events": [],
+    "player_loadouts": [
+      {
+        "subject": "ba568c35-ea6e-5c3d-83fd-7978addec605",
+        "character_id": "dade69b4-4f5a-8528-247b-219e5a1facd6"
+      },
+      {
+        "subject": "e08ad722-00e2-5c1a-a036-cd0ab6df48d0",
+        "character_id": "7c8a4701-4de6-9355-b254-e09bc2a34b72"
+      },
+      {
+        "subject": "28a480c5-0095-5351-9d42-f41cea89094e",
+        "character_id": "22697a3d-45bf-8dd7-4fec-84a9e28c69d7"
+      },
+      {
+        "subject": "2e4209e8-7d2b-5603-a962-efe27efcbaf1",
+        "character_id": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc"
+      },
+      {
+        "subject": "56e6e9b7-51f2-548d-92e8-4788f5d0de9d",
+        "character_id": "add6443a-41bd-e414-f6ad-e58d267f4e95"
+      },
+      {
+        "subject": "9478d0f8-6999-56cf-92e1-37d11cadd0ee",
+        "character_id": "add6443a-41bd-e414-f6ad-e58d267f4e95"
+      },
+      {
+        "subject": "d5684fe0-ef01-5de2-9290-e065dbe4cc9d",
+        "character_id": "1dbf2edd-4729-0984-3115-daa5eed44993"
+      },
+      {
+        "subject": "5bb0b79c-ae4d-5d30-9cb7-1f4da5a07e29",
+        "character_id": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc"
+      },
+      {
+        "subject": "c1afc655-c674-5224-9623-5503b4fc5196",
+        "character_id": "22697a3d-45bf-8dd7-4fec-84a9e28c69d7"
+      },
+      {
+        "subject": "a26d0768-8f6f-58eb-98de-3fc44c9f09af",
+        "character_id": "320b2a48-4d9b-a075-30f1-1f93a9b638fa"
+      }
+    ]
+  },
+  "unmodified_parser": {
+    "supported": false,
+    "expected_error": "no payload transform is registered for replay branch '++Ares-Core+release-china-13.05'."
+  },
+  "temporary_alias": {
+    "selected_transform": "ValorantSeededTransformChina13_05DiagnosticAlias -> ValorantSeededTransform13_05",
+    "reached_eof": true,
+    "pipeline": {
+      "replay_chunk_count": 317,
+      "replay_data_chunk_count": 24,
+      "playback_packet_count": 676379,
+      "raw_packet_count": 676379,
+      "bunch_count": 676379,
+      "payload_bunch_count": 674216,
+      "package_map_export_bunch_count": 0,
+      "exported_net_guid_count": 0,
+      "must_be_mapped_guid_count": 0,
+      "actor_channel_open_count": 2367,
+      "actor_channel_close_count": 2144,
+      "content_block_count": 664669,
+      "actor_content_block_count": 554894,
+      "subobject_content_block_count": 212344,
+      "rep_layout_content_block_count": 320669,
+      "resolved_export_group_count": 425,
+      "content_payload_bits_parsed": 859084059,
+      "content_payload_bits_skipped": 95688396,
+      "malformed_payload_count": 102569,
+      "malformed_payload_exception_count": 102569,
+      "malformed_content_block_count": 0,
+      "partial_error_count": 195,
+      "trailing_payload_count": 0
+    },
+    "raw_packet_stats": {
+      "packet_count": 676379,
+      "packets_with_bunches": 676379,
+      "bunch_count": 676379,
+      "malformed_packet_count": 0,
+      "partial_error_count": 195,
+      "total_packet_bytes": 146113143
+    },
+    "decoded_counts": {
+      "movement": 0,
+      "events": 109305,
+      "actor_spawned": 2367,
+      "actor_closed": 2144,
+      "export_group_received": 100719,
+      "rpc_received": 4022,
+      "valorant_shot_received": 53,
+      "filtered_export_groups": 563927,
+      "undecoded_export_groups": 265373,
+      "empty_decoded_export_groups": 298554
+    },
+    "transform_sample_health": {
+      "sample_count": 1000,
+      "malformed_count": 113,
+      "malformed_ratio": 0.113,
+      "samples_with_decoded_fields": 0,
+      "samples_with_decoded_fields_ratio": 0,
+      "fully_consumed_count": 922,
+      "fully_consumed_ratio": 0.922,
+      "mean_parsed_payload_ratio": 0.9467082804005975
+    }
+  }
+}
