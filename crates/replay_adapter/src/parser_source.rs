@@ -90,7 +90,9 @@ impl ValorantReplayParserSource {
                     loop {
                         match reader.read(&mut buf).await {
                             Ok(0) | Err(_) => break,
-                            Ok(n) => { let _ = file.write_all(&buf[..n]).await; }
+                            Ok(n) => {
+                                let _ = file.write_all(&buf[..n]).await;
+                            }
                         }
                     }
                 }
@@ -109,7 +111,9 @@ impl ValorantReplayParserSource {
                     loop {
                         match reader.read(&mut buf).await {
                             Ok(0) | Err(_) => break,
-                            Ok(n) => { let _ = file.write_all(&buf[..n]).await; }
+                            Ok(n) => {
+                                let _ = file.write_all(&buf[..n]).await;
+                            }
                         }
                     }
                 }
@@ -131,7 +135,9 @@ impl ValorantReplayParserSource {
             }
         };
 
-        if let Some(task) = stderr_task { let _ = task.await; }
+        if let Some(task) = stderr_task {
+            let _ = task.await;
+        }
 
         if status.success() {
             Ok(())

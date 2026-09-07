@@ -212,7 +212,11 @@ impl AgentService {
             Vec::new()
         };
         let scope = question_scope(question);
-        let personal_issues = self.database.list_player_issues(user_id).await.unwrap_or_default();
+        let personal_issues = self
+            .database
+            .list_player_issues(user_id)
+            .await
+            .unwrap_or_default();
         let semantic_context = if let Some(player_id) = selected_player.as_deref() {
             let semantic = self
                 .database
@@ -564,7 +568,10 @@ impl LlmProvider {
                 Err(error) => {
                     if attempt < 2 && error.is_connect() {
                         tracing::warn!(attempt, error = %error, "retrying LLM request (connect error)");
-                        tokio::time::sleep(std::time::Duration::from_millis(500 * (1 + attempt as u64))).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            500 * (1 + attempt as u64),
+                        ))
+                        .await;
                         last_error = Some(AgentError::Http(error));
                         continue;
                     }
@@ -586,18 +593,34 @@ impl LlmProvider {
             if !status.is_success() {
                 let detail = provider_error_detail(&bytes).replace(&self.api_key, "[redacted]");
                 if status.is_server_error() && attempt < 2 {
-                    tracing::warn!(attempt, status = status.as_u16(), "retrying LLM request after server error");
-                    tokio::time::sleep(std::time::Duration::from_millis(500 * (1 + attempt as u64))).await;
-                    last_error = Some(AgentError::Provider { status: status.as_u16(), detail, request_id });
+                    tracing::warn!(
+                        attempt,
+                        status = status.as_u16(),
+                        "retrying LLM request after server error"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        500 * (1 + attempt as u64),
+                    ))
+                    .await;
+                    last_error = Some(AgentError::Provider {
+                        status: status.as_u16(),
+                        detail,
+                        request_id,
+                    });
                     continue;
                 }
-                return Err(AgentError::Provider { status: status.as_u16(), detail, request_id });
+                return Err(AgentError::Provider {
+                    status: status.as_u16(),
+                    detail,
+                    request_id,
+                });
             }
             return serde_json::from_slice(&bytes).map_err(|error| {
                 AgentError::InvalidResponse(format!("response was not valid JSON: {error}"))
             });
         }
-        Err(last_error.unwrap_or_else(|| AgentError::InvalidResponse("all retries exhausted".to_owned())))
+        Err(last_error
+            .unwrap_or_else(|| AgentError::InvalidResponse("all retries exhausted".to_owned())))
     }
 
     async fn process_response(&self, response: reqwest::Response) -> Result<Value, AgentError> {
@@ -611,7 +634,11 @@ impl LlmProvider {
         let bytes = response.bytes().await?;
         if !status.is_success() {
             let detail = provider_error_detail(&bytes).replace(&self.api_key, "[redacted]");
-            return Err(AgentError::Provider { status: status.as_u16(), detail, request_id });
+            return Err(AgentError::Provider {
+                status: status.as_u16(),
+                detail,
+                request_id,
+            });
         }
         serde_json::from_slice(&bytes).map_err(|error| {
             AgentError::InvalidResponse(format!("response was not valid JSON: {error}"))

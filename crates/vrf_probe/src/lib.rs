@@ -141,8 +141,9 @@ pub fn convert_china_to_global(data: &[u8]) -> Result<Vec<u8>, ProbeError> {
     let china_branch_end = branch_offset + 4 + china_branch_bytes.len() + 1;
     let global_branch_end = branch_offset + 4 + global_branch_bytes.len() + 1;
 
-    let mut output =
-        Vec::with_capacity(data.len() - (china_branch_end - branch_offset) + (global_branch_end - branch_offset));
+    let mut output = Vec::with_capacity(
+        data.len() - (china_branch_end - branch_offset) + (global_branch_end - branch_offset),
+    );
     output.extend_from_slice(&data[..branch_offset]);
     output.extend_from_slice(&global_fstring_len);
     output.extend_from_slice(global_branch_bytes);
@@ -154,8 +155,20 @@ pub fn convert_china_to_global(data: &[u8]) -> Result<Vec<u8>, ProbeError> {
     let china_header_cl_bytes = CHINA_HEADER_CHANGELIST.to_le_bytes();
     let global_header_cl_bytes = GLOBAL_HEADER_CHANGELIST.to_le_bytes();
 
-    replace_u32_in_range(&mut output, &china_build_cl_bytes, &global_build_cl_bytes, 0, 700);
-    replace_u32_in_range(&mut output, &china_header_cl_bytes, &global_header_cl_bytes, 0, 700);
+    replace_u32_in_range(
+        &mut output,
+        &china_build_cl_bytes,
+        &global_build_cl_bytes,
+        0,
+        700,
+    );
+    replace_u32_in_range(
+        &mut output,
+        &china_header_cl_bytes,
+        &global_header_cl_bytes,
+        0,
+        700,
+    );
 
     Ok(output)
 }

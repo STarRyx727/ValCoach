@@ -38,7 +38,11 @@ impl ReplayTime {
     }
 }
 
-pub fn humanize_time(absolute_ms: i64, round_no: Option<u32>, round_start_ms: Option<i64>) -> String {
+pub fn humanize_time(
+    absolute_ms: i64,
+    round_no: Option<u32>,
+    round_start_ms: Option<i64>,
+) -> String {
     let round_elapsed_ms = round_start_ms.map(|start| absolute_ms - start);
     ReplayTime {
         absolute_ms,
@@ -57,7 +61,7 @@ pub fn humanize_timestamp(absolute_ms: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{humanize_time, humanize_timestamp, ReplayTime};
+    use super::{ReplayTime, humanize_time, humanize_timestamp};
 
     #[test]
     fn humanized_time_with_round() {

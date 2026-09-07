@@ -126,7 +126,12 @@ pub fn advance_state(state: &mut u32, prng_a: &mut u64, prng_b: &mut u64) -> u8 
 }
 
 /// Apply transform to a byte buffer with given constants.
-pub fn apply_transform(data: &mut [u8], bit_count: usize, seed: u32, constants: TransformConstants) {
+pub fn apply_transform(
+    data: &mut [u8],
+    bit_count: usize,
+    seed: u32,
+    constants: TransformConstants,
+) {
     if bit_count == 0 {
         return;
     }

@@ -55,9 +55,18 @@ impl MapResolver {
             .callouts
             .iter()
             .filter(|c| !c.region_name.is_empty())
-            .map(|c| (c.location.clone(), c.region_name.clone(), c.super_region_name.clone()))
+            .map(|c| {
+                (
+                    c.location.clone(),
+                    c.region_name.clone(),
+                    c.super_region_name.clone(),
+                )
+            })
             .collect();
-        Self { meta, callout_index }
+        Self {
+            meta,
+            callout_index,
+        }
     }
 
     /// Convert world coordinates to minimap pixel coordinates.
@@ -141,10 +150,7 @@ impl MapRegistry {
 
     pub fn resolver_for(&self, map_asset_path: &str) -> Option<&MapResolver> {
         // Extract map name from asset path like "/Game/Maps/Bonsai/Bonsai"
-        let map_name = map_asset_path
-            .rsplit('/')
-            .next()
-            .unwrap_or("");
+        let map_name = map_asset_path.rsplit('/').next().unwrap_or("");
         self.resolvers.get(map_name)
     }
 
@@ -196,7 +202,11 @@ mod tests {
     #[test]
     fn world_to_minimap_swaps_axes() {
         let resolver = MapResolver::new(test_meta());
-        let pos = Vector3 { x: 1000.0, y: 2000.0, z: 0.0 };
+        let pos = Vector3 {
+            x: 1000.0,
+            y: 2000.0,
+            z: 0.0,
+        };
         let (mx, my) = resolver.world_to_minimap(&pos);
         // map_x = world_y * x_mult + x_scalar = 2000 * -0.145 + 650 = 360
         assert_eq!(mx, 360.0);
@@ -207,7 +217,11 @@ mod tests {
     #[test]
     fn nearest_callout_resolves() {
         let resolver = MapResolver::new(test_meta());
-        let pos = Vector3 { x: 1000.0, y: 2000.0, z: 0.0 };
+        let pos = Vector3 {
+            x: 1000.0,
+            y: 2000.0,
+            z: 0.0,
+        };
         // (360, 495) is closest to "A Site" at (100, 200) vs "Mid" at (300, 300)
         let area = resolver.area_at(&pos);
         assert!(area.is_some());

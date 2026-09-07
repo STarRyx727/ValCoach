@@ -14,11 +14,11 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePo
 use sqlx::{QueryBuilder, Sqlite, Transaction};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+use valcoach_domain::agent_display_name as domain_agent_display_name;
+use valcoach_domain::map_display_name as domain_map_display_name;
 use valcoach_domain::{
     MovementSample, ParsedReplay, ParsedReplaySummary, ReplayCapabilities, ReplayMetadata, Vector3,
 };
-use valcoach_domain::agent_display_name as domain_agent_display_name;
-use valcoach_domain::map_display_name as domain_map_display_name;
 use valcoach_replay_adapter::{NormalizedRecord, ParsedBundleSource, ReplaySourceError};
 
 use semantic::SemanticBuilder;
@@ -145,12 +145,21 @@ fn compact_combat_events(raw: &[Value]) -> Vec<Value> {
         let attacker = event.get("attacker").and_then(Value::as_str).unwrap_or("");
         let weapon = event.get("weapon").and_then(Value::as_str).unwrap_or("");
         let damage = event.get("damage").and_then(Value::as_f64);
-        let killed = event.get("killed").and_then(Value::as_bool).unwrap_or(false);
-        let hit_region = event.get("hit_region").and_then(Value::as_str).map(str::to_owned);
+        let killed = event
+            .get("killed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let hit_region = event
+            .get("hit_region")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let area = event.get("area").and_then(Value::as_str).map(str::to_owned);
         let attacker_pos = event.get("attacker_position").cloned();
         let victim_pos = event.get("victim_position").cloned();
-        let victim = event.get("victim").and_then(Value::as_str).map(str::to_owned);
+        let victim = event
+            .get("victim")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let evidence = event.get("evidence").cloned().unwrap_or(json!([]));
 
         if kind == "shot" {
@@ -159,12 +168,23 @@ fn compact_combat_events(raw: &[Value]) -> Vec<Value> {
                 let same_weapon = burst.weapon == weapon || weapon.is_empty();
                 let within_gap = time_ms - burst.last_shot_ms <= BURST_GAP_MS;
                 if same_attacker && same_weapon && within_gap {
-                    current_burst.as_mut().unwrap().add_shot(time_ms, &area, &attacker_pos, evidence);
+                    current_burst.as_mut().unwrap().add_shot(
+                        time_ms,
+                        &area,
+                        &attacker_pos,
+                        evidence,
+                    );
                     continue;
                 }
                 result.push(current_burst.take().unwrap().finalize());
             }
-            let mut burst = BurstAccumulator::new(attacker, weapon, time_ms, area.clone(), attacker_pos.clone());
+            let mut burst = BurstAccumulator::new(
+                attacker,
+                weapon,
+                time_ms,
+                area.clone(),
+                attacker_pos.clone(),
+            );
             burst.add_shot(time_ms, &area, &attacker_pos, evidence);
             current_burst = Some(burst);
         } else if kind == "damage" {
@@ -172,15 +192,37 @@ fn compact_combat_events(raw: &[Value]) -> Vec<Value> {
                 let within_assoc = time_ms - burst.last_shot_ms <= DAMAGE_ASSOCIATION_MS
                     || burst.first_shot_ms - time_ms <= DAMAGE_ASSOCIATION_MS;
                 if within_assoc {
-                    burst.add_damage(damage, killed, hit_region.as_deref(), &area, victim.as_deref(), &victim_pos, evidence);
+                    burst.add_damage(
+                        damage,
+                        killed,
+                        hit_region.as_deref(),
+                        &area,
+                        victim.as_deref(),
+                        &victim_pos,
+                        evidence,
+                    );
                     continue;
                 }
             }
             if let Some(burst) = current_burst.take() {
                 result.push(burst.finalize());
             }
-            let mut standalone = BurstAccumulator::new(attacker, weapon, time_ms, area.clone(), attacker_pos.clone());
-            standalone.add_damage(damage, killed, hit_region.as_deref(), &area, victim.as_deref(), &victim_pos, evidence);
+            let mut standalone = BurstAccumulator::new(
+                attacker,
+                weapon,
+                time_ms,
+                area.clone(),
+                attacker_pos.clone(),
+            );
+            standalone.add_damage(
+                damage,
+                killed,
+                hit_region.as_deref(),
+                &area,
+                victim.as_deref(),
+                &victim_pos,
+                evidence,
+            );
             standalone.shot_count = 0;
             result.push(standalone.finalize());
         } else {
@@ -213,7 +255,13 @@ struct BurstAccumulator {
 }
 
 impl BurstAccumulator {
-    fn new(attacker: &str, weapon: &str, time_ms: i64, area: Option<String>, pos: Option<Value>) -> Self {
+    fn new(
+        attacker: &str,
+        weapon: &str,
+        time_ms: i64,
+        area: Option<String>,
+        pos: Option<Value>,
+    ) -> Self {
         Self {
             attacker: attacker.to_owned(),
             weapon: weapon.to_owned(),
@@ -231,7 +279,13 @@ impl BurstAccumulator {
         }
     }
 
-    fn add_shot(&mut self, time_ms: i64, area: &Option<String>, pos: &Option<Value>, evidence: Value) {
+    fn add_shot(
+        &mut self,
+        time_ms: i64,
+        area: &Option<String>,
+        pos: &Option<Value>,
+        evidence: Value,
+    ) {
         self.shot_count += 1;
         self.last_shot_ms = time_ms;
         if self.area.is_none() {
@@ -284,7 +338,11 @@ impl BurstAccumulator {
     }
 
     fn finalize(self) -> Value {
-        let kind = if self.shot_count > 0 { "burst" } else { "damage" };
+        let kind = if self.shot_count > 0 {
+            "burst"
+        } else {
+            "damage"
+        };
         if self.shot_count == 1 && self.total_damage == 0.0 && !self.killed {
             json!({
                 "kind": "shot",
@@ -842,13 +900,12 @@ impl Database {
         user_id: &str,
         match_id: &str,
     ) -> Result<Vec<String>, DatabaseError> {
-        let job_ids: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM parse_jobs WHERE match_id = ? AND user_id = ?",
-        )
-        .bind(match_id)
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let job_ids: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM parse_jobs WHERE match_id = ? AND user_id = ?")
+                .bind(match_id)
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await?;
         sqlx::query("DELETE FROM matches WHERE id = ? AND user_id = ?")
             .bind(match_id)
             .bind(user_id)
@@ -1047,45 +1104,76 @@ impl Database {
                     "players": self.get_nearby_players(match_id, timestamp_ms, x, y, z, 2500.0).await?
                 }));
             }
-            let round_start_ms = rounds.iter()
-                .find(|round| round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64))
+            let round_start_ms = rounds
+                .iter()
+                .find(|round| {
+                    round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64)
+                })
                 .and_then(|round| round.get("start_ms").and_then(Value::as_i64));
-            let humanized_combat: Vec<Value> = combat.iter().map(|event| {
-                let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-                let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
-                let mut enriched = event.clone();
-                if let Some(obj) = enriched.as_object_mut() {
-                    obj.insert("human_time".to_string(), json!(human_time));
-                }
-                enriched
-            }).collect();
-            let humanized_abilities: Vec<Value> = abilities.iter().map(|event| {
-                let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-                let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
-                let mut enriched = event.clone();
-                if let Some(obj) = enriched.as_object_mut() {
-                    obj.insert("human_time".to_string(), json!(human_time));
-                }
-                enriched
-            }).collect();
-            let humanized_spike: Vec<Value> = spike.iter().map(|event| {
-                let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-                let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
-                let mut enriched = event.clone();
-                if let Some(obj) = enriched.as_object_mut() {
-                    obj.insert("human_time".to_string(), json!(human_time));
-                }
-                enriched
-            }).collect();
-            let humanized_movement: Vec<Value> = movement.iter().map(|event| {
-                let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-                let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
-                let mut enriched = event.clone();
-                if let Some(obj) = enriched.as_object_mut() {
-                    obj.insert("human_time".to_string(), json!(human_time));
-                }
-                enriched
-            }).collect();
+            let humanized_combat: Vec<Value> = combat
+                .iter()
+                .map(|event| {
+                    let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
+                    let human_time = valcoach_domain::humanize::humanize_time(
+                        time_ms,
+                        Some(round_no),
+                        round_start_ms,
+                    );
+                    let mut enriched = event.clone();
+                    if let Some(obj) = enriched.as_object_mut() {
+                        obj.insert("human_time".to_string(), json!(human_time));
+                    }
+                    enriched
+                })
+                .collect();
+            let humanized_abilities: Vec<Value> = abilities
+                .iter()
+                .map(|event| {
+                    let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
+                    let human_time = valcoach_domain::humanize::humanize_time(
+                        time_ms,
+                        Some(round_no),
+                        round_start_ms,
+                    );
+                    let mut enriched = event.clone();
+                    if let Some(obj) = enriched.as_object_mut() {
+                        obj.insert("human_time".to_string(), json!(human_time));
+                    }
+                    enriched
+                })
+                .collect();
+            let humanized_spike: Vec<Value> = spike
+                .iter()
+                .map(|event| {
+                    let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
+                    let human_time = valcoach_domain::humanize::humanize_time(
+                        time_ms,
+                        Some(round_no),
+                        round_start_ms,
+                    );
+                    let mut enriched = event.clone();
+                    if let Some(obj) = enriched.as_object_mut() {
+                        obj.insert("human_time".to_string(), json!(human_time));
+                    }
+                    enriched
+                })
+                .collect();
+            let humanized_movement: Vec<Value> = movement
+                .iter()
+                .map(|event| {
+                    let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
+                    let human_time = valcoach_domain::humanize::humanize_time(
+                        time_ms,
+                        Some(round_no),
+                        round_start_ms,
+                    );
+                    let mut enriched = event.clone();
+                    if let Some(obj) = enriched.as_object_mut() {
+                        obj.insert("human_time".to_string(), json!(human_time));
+                    }
+                    enriched
+                })
+                .collect();
             collect_evidence(&humanized_combat, &mut evidence);
             collect_evidence(&humanized_abilities, &mut evidence);
             collect_evidence(&humanized_spike, &mut evidence);
@@ -1692,10 +1780,7 @@ impl Database {
 
         let mut compact_rounds = Vec::new();
         for round in &rounds {
-            let round_no = round
-                .get("round_no")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32;
+            let round_no = round.get("round_no").and_then(Value::as_u64).unwrap_or(0) as u32;
             let round_start_ms = round.get("start_ms").and_then(Value::as_i64);
 
             let movement = if let Some(ref player_id) = bound_player {
@@ -1798,22 +1883,24 @@ impl Database {
     }
 
     /// Retrieve the player's personal issues for coaching context.
-    pub async fn list_player_issues(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<Value>, DatabaseError> {
+    pub async fn list_player_issues(&self, user_id: &str) -> Result<Vec<Value>, DatabaseError> {
         let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>, Option<String>, f64, f64, String, i64, Option<String>, Option<i64>, Option<i64>)>(
             "SELECT issue_key, category, title, description, map_name, side, area, severity, confidence, status, occurrences, last_match_id, last_round_no, last_timestamp_ms FROM player_issues WHERE user_id = ? AND status != 'resolved' ORDER BY occurrences DESC, severity DESC LIMIT 10",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| json!({
-            "issue_key": r.0, "category": r.1, "title": r.2, "description": r.3,
-            "map": r.4, "side": r.5, "area": r.6,
-            "severity": r.7, "confidence": r.8, "status": r.9, "occurrences": r.10,
-            "last_match_id": r.11, "last_round_no": r.12, "last_timestamp_ms": r.13,
-        })).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "issue_key": r.0, "category": r.1, "title": r.2, "description": r.3,
+                    "map": r.4, "side": r.5, "area": r.6,
+                    "severity": r.7, "confidence": r.8, "status": r.9, "occurrences": r.10,
+                    "last_match_id": r.11, "last_round_no": r.12, "last_timestamp_ms": r.13,
+                })
+            })
+            .collect())
     }
 
     /// Record or update a player issue from coaching feedback.
@@ -1872,7 +1959,8 @@ impl Database {
     pub async fn agent_usage_for_user(
         &self,
         user_id: &str,
-    ) -> Result<AgentUsageSummary, DatabaseError> {        let (input, output, total, cost, priced) = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+    ) -> Result<AgentUsageSummary, DatabaseError> {
+        let (input, output, total, cost, priced) = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
             r#"
             SELECT COALESCE(SUM(input_tokens), 0),
                    COALESCE(SUM(output_tokens), 0),
@@ -2085,7 +2173,10 @@ fn compact_movement_segments(movement: &[Value], round_start_ms: Option<i64>) ->
 
     for sample in movement {
         let time_ms = sample.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-        let area = sample.get("area").and_then(Value::as_str).map(str::to_owned);
+        let area = sample
+            .get("area")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let alive = sample.get("alive").and_then(Value::as_bool).unwrap_or(true);
 
         if area != current_area || (alive != has_alive && !alive) {
@@ -2096,11 +2187,8 @@ fn compact_movement_segments(movement: &[Value], round_start_ms: Option<i64>) ->
                     None,
                     round_start_ms,
                 );
-                let human_end = valcoach_domain::humanize::humanize_time(
-                    time_ms,
-                    None,
-                    round_start_ms,
-                );
+                let human_end =
+                    valcoach_domain::humanize::humanize_time(time_ms, None, round_start_ms);
                 segments.push(json!({
                     "from": prev_area,
                     "to": end_area,
@@ -2127,16 +2215,9 @@ fn compact_movement_segments(movement: &[Value], round_start_ms: Option<i64>) ->
             .last()
             .and_then(|s| s.get("time_ms").and_then(Value::as_i64))
             .unwrap_or(0);
-        let human_start = valcoach_domain::humanize::humanize_time(
-            segment_start_ms,
-            None,
-            round_start_ms,
-        );
-        let human_end = valcoach_domain::humanize::humanize_time(
-            last_time,
-            None,
-            round_start_ms,
-        );
+        let human_start =
+            valcoach_domain::humanize::humanize_time(segment_start_ms, None, round_start_ms);
+        let human_end = valcoach_domain::humanize::humanize_time(last_time, None, round_start_ms);
         segments.push(json!({
             "area": last_area,
             "start": human_start,
@@ -2177,7 +2258,8 @@ fn summarize_combat(combat: &[Value], round_no: u32, round_start_ms: Option<i64>
         .iter()
         .map(|e| {
             let time_ms = e.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-            let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
+            let human_time =
+                valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
             let mut summary = json!({
                 "time": human_time,
                 "kind": e.get("kind"),
@@ -2212,12 +2294,17 @@ fn summarize_combat(combat: &[Value], round_no: u32, round_start_ms: Option<i64>
 }
 
 /// Summarize ability events for a round.
-fn summarize_abilities(abilities: &[Value], round_no: u32, round_start_ms: Option<i64>) -> Vec<Value> {
+fn summarize_abilities(
+    abilities: &[Value],
+    round_no: u32,
+    round_start_ms: Option<i64>,
+) -> Vec<Value> {
     abilities
         .iter()
         .map(|e| {
             let time_ms = e.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-            let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
+            let human_time =
+                valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
             json!({
                 "time": human_time,
                 "ability": e.get("ability"),
@@ -2233,7 +2320,8 @@ fn summarize_spike(spike: &[Value], round_no: u32, round_start_ms: Option<i64>) 
         .iter()
         .map(|e| {
             let time_ms = e.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-            let human_time = valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
+            let human_time =
+                valcoach_domain::humanize::humanize_time(time_ms, Some(round_no), round_start_ms);
             json!({
                 "time": human_time,
                 "kind": e.get("kind"),

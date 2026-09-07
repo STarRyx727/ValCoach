@@ -20,3 +20,7 @@ path = "src/bin/china_transform_search.rs"
 [[bin]]
 name = "china_known_plaintext"
 path = "src/bin/china_known_plaintext.rs"
+
+[[bin]]
+name = "china_solve"
+path = "src/bin/china_solve.rs"

@@ -849,32 +849,30 @@ fn clean_hit_region(value: &str) -> String {
 /// Examples: "/Game/Characters/Hunter/Q/Ability_Hunter_Q_SonarPing" -> "Sova Q (SonarPing)"
 ///           "/Game/Characters/Smonk/NewSmoke/GameObject_Smonk_NewSmoke" -> "Clove E (NewSmoke)"
 fn extract_ability_name(path: &str) -> Option<String> {
-    if !path.contains("Ability_") && !path.contains("GameObject_") && !path.contains("Projectile_") {
+    if !path.contains("Ability_") && !path.contains("GameObject_") && !path.contains("Projectile_")
+    {
         return None;
     }
     if path.contains("Melee_Base") || path.contains("EquippablePickup") {
         return None;
     }
-    let agent = path
-        .rsplit('/')
-        .nth(1)
-        .and_then(|segment| {
-            let codename = segment.strip_suffix("_PC").unwrap_or(segment);
-            let display = match codename {
-                "Hunter" => "Sova",
-                "Clay" => "Raze",
-                "Sprinter" => "Neon",
-                "Vampire" => "Reyna",
-                "Sarge" => "Brimstone",
-                "Smonk" => "Clove",
-                "Wushu" => "Jett",
-                "Pine" => "Vyse",
-                "Deadeye" => "Chamber",
-                "AggroBot" => "Gekko",
-                _ => codename,
-            };
-            (!display.is_empty() && display != "Characters").then(|| display.to_owned())
-        });
+    let agent = path.rsplit('/').nth(1).and_then(|segment| {
+        let codename = segment.strip_suffix("_PC").unwrap_or(segment);
+        let display = match codename {
+            "Hunter" => "Sova",
+            "Clay" => "Raze",
+            "Sprinter" => "Neon",
+            "Vampire" => "Reyna",
+            "Sarge" => "Brimstone",
+            "Smonk" => "Clove",
+            "Wushu" => "Jett",
+            "Pine" => "Vyse",
+            "Deadeye" => "Chamber",
+            "AggroBot" => "Gekko",
+            _ => codename,
+        };
+        (!display.is_empty() && display != "Characters").then(|| display.to_owned())
+    });
     let ability_slot = if path.contains("/Q/") {
         Some("Q")
     } else if path.contains("/E/") {
@@ -886,21 +884,18 @@ fn extract_ability_name(path: &str) -> Option<String> {
     } else {
         None
     };
-    let effect_name = path
-        .rsplit('/')
-        .next()
-        .and_then(|name| {
-            let stripped = name
-                .strip_prefix("Ability_")
-                .or_else(|| name.strip_prefix("GameObject_"))
-                .or_else(|| name.strip_prefix("Projectile_"))
-                .unwrap_or(name);
-            let cleaned = stripped
-                .trim_end_matches("_C")
-                .trim_end_matches("_Production")
-                .trim_end_matches("_ProductionNEW");
-            (!cleaned.is_empty()).then(|| cleaned.to_owned())
-        });
+    let effect_name = path.rsplit('/').next().and_then(|name| {
+        let stripped = name
+            .strip_prefix("Ability_")
+            .or_else(|| name.strip_prefix("GameObject_"))
+            .or_else(|| name.strip_prefix("Projectile_"))
+            .unwrap_or(name);
+        let cleaned = stripped
+            .trim_end_matches("_C")
+            .trim_end_matches("_Production")
+            .trim_end_matches("_ProductionNEW");
+        (!cleaned.is_empty()).then(|| cleaned.to_owned())
+    });
     match (agent, ability_slot, effect_name) {
         (Some(a), Some(slot), Some(effect)) => Some(format!("{a} {slot} ({effect})")),
         (Some(a), None, Some(effect)) => Some(format!("{a} ({effect})")),
@@ -912,7 +907,11 @@ fn extract_ability_name(path: &str) -> Option<String> {
 
 /// Resolve area from world coordinates using the map registry.
 /// Falls back to hardcoded Split zones if no map data is loaded.
-pub(super) fn resolve_area(position: &Vector3, map_asset_path: Option<&str>, registry: Option<&valcoach_maps::MapRegistry>) -> Option<String> {
+pub(super) fn resolve_area(
+    position: &Vector3,
+    map_asset_path: Option<&str>,
+    registry: Option<&valcoach_maps::MapRegistry>,
+) -> Option<String> {
     if let (Some(registry), Some(map_path)) = (registry, map_asset_path)
         && let Some(area) = registry.resolve_area(map_path, position)
     {
