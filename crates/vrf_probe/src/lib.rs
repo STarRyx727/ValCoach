@@ -3,8 +3,6 @@
 //! This deliberately does not decode UE packets or payload transforms. Container parsing is
 //! delegated to the MIT-licensed `vrf-container` crate from yakisoba0728/vrfkit; see NOTICE.md.
 
-pub mod china_transform;
-
 use std::{
     collections::BTreeMap,
     fs::{self, File},

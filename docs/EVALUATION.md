@@ -2,12 +2,12 @@
 
 ## A. Parser and adapter
 
-The production fixture gate is the real Global 13.05 replay recorded in
-`docs/REPLAY_GLOBAL_13_05_REPORT.md`. The checked integration test runs the common probe and pinned
+The production fixture gate is the ignored integration test
+`global_13_05_job_reaches_ready_and_persists_a_match_summary`. It runs the common probe and pinned
 C# Parser, validates Replay Bundle v1, and verifies transactional persistence of 138,065 event
-records and 165,047 movement records. The China 13.05 gate validates 239 server Events and expects
-an explicit payload `unsupported` result. The CN 13.00 regression remains preserved; neither branch
-falls back to a Global transform.
+records and 165,047 movement records. The China 13.05 test validates 239 server events and a 5v5
+roster while keeping unavailable ReplayData capabilities explicit; neither branch silently falls
+back to a Global transform.
 
 ## B. Deterministic metrics
 

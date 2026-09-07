@@ -9,6 +9,8 @@ Demos-China/
 ValorantReplayParser-main/
 vrfkit-main/
 ForCodex/
+ForGLM/
+diagnostics/
 
 # Third-party parser checkout and build output
 .external/

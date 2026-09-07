@@ -9,6 +9,45 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $pinnedParserCommit = 'b51d67423b7b4952d59051cf91e55efa1c42da05'
+$gitNetworkOptions = @('-c', 'http.version=HTTP/1.1')
+
+function Test-LocalTcpPort {
+    param([string]$HostName, [int]$Port)
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect($HostName, $Port)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
+}
+
+$gitProxy = $env:VALCOACH_GIT_PROXY
+if ([string]::IsNullOrWhiteSpace($gitProxy) -and (Test-LocalTcpPort '127.0.0.1' 7890)) {
+    $gitProxy = 'http://127.0.0.1:7890'
+}
+if (-not [string]::IsNullOrWhiteSpace($gitProxy)) {
+    $gitNetworkOptions += @('-c', "http.proxy=$gitProxy")
+    Write-Host "Using Git proxy: $gitProxy"
+}
+
+function Invoke-GitNetwork {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & git @gitNetworkOptions @Arguments
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($attempt -lt 3) {
+            Write-Warning "Git network operation failed (attempt $attempt/3). Retrying..."
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+    throw "$FailureMessage If GitHub is blocked, start your local proxy or set VALCOACH_GIT_PROXY (for example http://127.0.0.1:7890)."
+}
 
 function Get-DotnetCommand {
     $command = Get-Command dotnet -ErrorAction SilentlyContinue
@@ -38,23 +77,25 @@ if (-not (Test-Path -LiteralPath $parserParent)) {
 
 if (-not (Test-Path -LiteralPath (Join-Path $parserPath '.git'))) {
     if (Test-Path -LiteralPath $parserPath) {
-        throw "Parser directory exists but is not a Git checkout: $parserPath"
+        $generatedRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\.external')).TrimEnd('\')
+        if (-not $parserPath.StartsWith($generatedRoot + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Parser directory exists but is not a Git checkout: $parserPath"
+        }
+        Write-Warning "Removing an incomplete generated parser directory from a previous failed install: $parserPath"
+        Remove-Item -LiteralPath $parserPath -Recurse -Force
     }
 
-    git clone --no-checkout https://github.com/michel-giehl/ValorantReplayParser.git $parserPath
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to clone ValorantReplayParser.' }
+    Invoke-GitNetwork -Arguments @('clone', '--no-checkout', 'https://github.com/michel-giehl/ValorantReplayParser.git', $parserPath) -FailureMessage 'Failed to clone ValorantReplayParser after three attempts.'
     git -C $parserPath checkout --detach $pinnedParserCommit
     if ($LASTEXITCODE -ne 0) { throw "Failed to check out pinned Parser commit $pinnedParserCommit." }
 } elseif (-not (git -C $parserPath rev-parse --verify HEAD 2>$null)) {
     # A clone interrupted before its initial checkout has no HEAD yet. Complete it
     # from the declared official remote instead of using an unversioned snapshot.
-    git -C $parserPath fetch origin $pinnedParserCommit
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to complete the interrupted Parser clone.' }
+    Invoke-GitNetwork -Arguments @('-C', $parserPath, 'fetch', 'origin', $pinnedParserCommit) -FailureMessage 'Failed to complete the interrupted Parser clone.'
     git -C $parserPath checkout --detach $pinnedParserCommit
     if ($LASTEXITCODE -ne 0) { throw 'Failed to check out the fetched Parser commit.' }
 } elseif ($Refresh) {
-    git -C $parserPath fetch origin $pinnedParserCommit
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to refresh the pinned Parser commit.' }
+    Invoke-GitNetwork -Arguments @('-C', $parserPath, 'fetch', 'origin', $pinnedParserCommit) -FailureMessage 'Failed to refresh the pinned Parser commit.'
 }
 
 $sha = (git -C $parserPath rev-parse HEAD).Trim()

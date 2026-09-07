@@ -109,6 +109,13 @@ LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
 
 首次运行会自动检出固定版本的 C# 解析器、应用仓库内补丁并安装前端依赖；地图元数据和俯视图已经随仓库提供，无需运行额外的 Python 脚本。
 
+解析器下载会自动重试三次，并自动使用正在监听的 `http://127.0.0.1:7890` 本地代理。其他代理地址可先设置 `VALCOACH_GIT_PROXY`，例如：
+
+```powershell
+$env:VALCOACH_GIT_PROXY = 'http://127.0.0.1:7890'
+.\start.cmd
+```
+
 后端监听 `http://127.0.0.1:3000`，Vite 开发服务器代理 `/api` 请求。
 
 ### 使用流程
@@ -154,8 +161,8 @@ crates/
 apps/
 └─ server/          # axum HTTP 服务（auth/jobs/matches/agent）
 web/                # React/Vite 前端
-scripts/            # 地图数据获取、解析器安装、smoke 测试
-docs/               # 技术文档（解析报告、schema diff、provider 指南等）
+scripts/            # 一键启动、解析器安装、Bundle 验证与 smoke 测试
+docs/               # 长期技术文档（Provider、Bundle 协议、评测与架构决策）
 ```
 
 ## 参考开源项目
