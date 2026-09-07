@@ -8,8 +8,23 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $parserRoot = Join-Path $projectRoot '.external\ValorantReplayParser'
 $parserProject = Join-Path $parserRoot 'src\CliReader\CliReader.csproj'
+$parserMarker = Join-Path $parserRoot 'VALCOACH_TESTED_COMMIT.txt'
+$pinnedParserCommit = 'b51d67423b7b4952d59051cf91e55efa1c42da05'
 $webRoot = Join-Path $projectRoot 'web'
 $backend = $null
+
+function Test-LocalTcpPort {
+    param([string]$HostName, [int]$Port)
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect($HostName, $Port)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
+}
 
 foreach ($commandName in @('cargo', 'npm', 'git')) {
     if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) {
@@ -17,12 +32,26 @@ foreach ($commandName in @('cargo', 'npm', 'git')) {
     }
 }
 
-if (-not $SkipParserSetup -and -not (Test-Path -LiteralPath $parserProject)) {
+function Test-ParserReady {
+    if (-not (Test-Path -LiteralPath $parserProject) -or -not (Test-Path -LiteralPath $parserMarker)) {
+        return $false
+    }
+
+    return (Get-Content -LiteralPath $parserMarker -Raw).Trim() -eq $pinnedParserCommit
+}
+
+if (-not $SkipParserSetup -and -not (Test-ParserReady)) {
     Write-Host '[1/3] Installing the pinned replay parser (first run only)...'
     & (Join-Path $PSScriptRoot 'setup_parser.ps1') -SkipTests
 }
-if (-not (Test-Path -LiteralPath $parserProject)) {
+if (-not (Test-ParserReady)) {
     throw "Replay parser was not found at $parserProject. Run scripts\setup_parser.ps1."
+}
+
+foreach ($port in @(3000, 5173)) {
+    if (Test-LocalTcpPort -HostName '127.0.0.1' -Port $port) {
+        throw "Port $port is already in use. Close the previous ValCoach instance, then run start.cmd again."
+    }
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $webRoot 'node_modules'))) {
@@ -38,7 +67,19 @@ if (-not (Test-Path -LiteralPath (Join-Path $webRoot 'node_modules'))) {
 
 try {
     Write-Host '[3/3] Starting ValCoach...'
-    $backend = Start-Process -FilePath 'cargo' -ArgumentList @('run', '-p', 'valcoach-server') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
+    Push-Location $projectRoot
+    try {
+        & cargo build -p valcoach-server
+        if ($LASTEXITCODE -ne 0) { throw 'ValCoach backend build failed.' }
+    } finally {
+        Pop-Location
+    }
+
+    $backendExecutable = Join-Path $projectRoot 'target\debug\valcoach-server.exe'
+    if (-not (Test-Path -LiteralPath $backendExecutable)) {
+        throw "ValCoach backend executable was not found: $backendExecutable"
+    }
+    $backend = Start-Process -FilePath $backendExecutable -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
     $ready = $false
     for ($attempt = 0; $attempt -lt 90; $attempt++) {
         if ($backend.HasExited) { throw "ValCoach backend exited with code $($backend.ExitCode)." }
@@ -62,7 +103,8 @@ try {
     Write-Host 'ValCoach is running at http://127.0.0.1:5173 (Ctrl+C to stop).'
     Push-Location $webRoot
     try {
-        & npm run dev -- --host 127.0.0.1
+        & npm run dev -- --host 127.0.0.1 --strictPort
+        if ($LASTEXITCODE -ne 0) { throw 'ValCoach web server exited unexpectedly.' }
     } finally {
         Pop-Location
     }

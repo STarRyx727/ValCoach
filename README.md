@@ -161,7 +161,7 @@ crates/
 apps/
 └─ server/          # axum HTTP 服务（auth/jobs/matches/agent）
 web/                # React/Vite 前端
-scripts/            # 一键启动、解析器安装、Bundle 验证与 smoke 测试
+scripts/            # 一键启动与固定版本解析器安装
 docs/               # 长期技术文档（Provider、Bundle 协议、评测与架构决策）
 ```
 

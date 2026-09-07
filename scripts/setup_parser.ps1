@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$ParserDirectory = (Join-Path $PSScriptRoot '..\.external\ValorantReplayParser'),
+    [string]$ParserDirectory,
     [switch]$Refresh,
     [switch]$SkipTests,
     [switch]$ApplyCn1300Alias,
@@ -8,6 +8,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($ParserDirectory)) {
+    # Windows PowerShell 5.1 does not populate $PSScriptRoot while binding
+    # default parameter expressions. Resolve the default after binding instead.
+    $ParserDirectory = Join-Path $PSScriptRoot '..\.external\ValorantReplayParser'
+}
 $pinnedParserCommit = 'b51d67423b7b4952d59051cf91e55efa1c42da05'
 $gitNetworkOptions = @('-c', 'http.version=HTTP/1.1')
 
@@ -39,14 +44,51 @@ function Invoke-GitNetwork {
         [Parameter(Mandatory = $true)][string]$FailureMessage
     )
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        & git @gitNetworkOptions @Arguments
-        if ($LASTEXITCODE -eq 0) { return }
+        $previousErrorAction = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            & git @gitNetworkOptions @Arguments
+            $exitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorAction
+        }
+        if ($exitCode -eq 0) { return }
         if ($attempt -lt 3) {
             Write-Warning "Git network operation failed (attempt $attempt/3). Retrying..."
             Start-Sleep -Seconds (2 * $attempt)
         }
     }
     throw "$FailureMessage If GitHub is blocked, start your local proxy or set VALCOACH_GIT_PROXY (for example http://127.0.0.1:7890)."
+}
+
+function Test-GitCommand {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & git @Arguments 2>$null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
+function Invoke-GitCommand {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & git @Arguments
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    if ($exitCode -ne 0) { throw $FailureMessage }
 }
 
 function Get-DotnetCommand {
@@ -86,14 +128,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $parserPath '.git'))) {
     }
 
     Invoke-GitNetwork -Arguments @('clone', '--no-checkout', 'https://github.com/michel-giehl/ValorantReplayParser.git', $parserPath) -FailureMessage 'Failed to clone ValorantReplayParser after three attempts.'
-    git -C $parserPath checkout --detach $pinnedParserCommit
-    if ($LASTEXITCODE -ne 0) { throw "Failed to check out pinned Parser commit $pinnedParserCommit." }
-} elseif (-not (git -C $parserPath rev-parse --verify HEAD 2>$null)) {
+    Invoke-GitCommand -Arguments @('-C', $parserPath, 'checkout', '--detach', $pinnedParserCommit) -FailureMessage "Failed to check out pinned Parser commit $pinnedParserCommit."
+} elseif (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'rev-parse', '--verify', 'HEAD'))) {
     # A clone interrupted before its initial checkout has no HEAD yet. Complete it
     # from the declared official remote instead of using an unversioned snapshot.
     Invoke-GitNetwork -Arguments @('-C', $parserPath, 'fetch', 'origin', $pinnedParserCommit) -FailureMessage 'Failed to complete the interrupted Parser clone.'
-    git -C $parserPath checkout --detach $pinnedParserCommit
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to check out the fetched Parser commit.' }
+    Invoke-GitCommand -Arguments @('-C', $parserPath, 'checkout', '--detach', $pinnedParserCommit) -FailureMessage 'Failed to check out the fetched Parser commit.'
 } elseif ($Refresh) {
     Invoke-GitNetwork -Arguments @('-C', $parserPath, 'fetch', 'origin', $pinnedParserCommit) -FailureMessage 'Failed to refresh the pinned Parser commit.'
 }
@@ -109,15 +149,12 @@ if (-not (Test-Path -LiteralPath $valcoachPatch)) {
     throw "ValCoach export profile patch was not found: $valcoachPatch"
 }
 
-git -C $parserPath apply --reverse --check $valcoachPatch 2>$null
-$valcoachPatchAlreadyApplied = $LASTEXITCODE -eq 0
+$valcoachPatchAlreadyApplied = Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--reverse', '--check', $valcoachPatch)
 if (-not $valcoachPatchAlreadyApplied) {
-    git -C $parserPath apply --check $valcoachPatch
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--check', $valcoachPatch))) {
         throw 'ValCoach export profile patch cannot be applied cleanly; use a clean pinned Parser checkout.'
     }
-    git -C $parserPath apply $valcoachPatch
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to apply the ValCoach export profile patch.' }
+    Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $valcoachPatch) -FailureMessage 'Failed to apply the ValCoach export profile patch.'
     Write-Host 'Applied ValCoach compact export profile.'
 } else {
     Write-Host 'ValCoach compact export profile is already applied.'
@@ -129,34 +166,28 @@ if ($ApplyCn1300Alias) {
         throw "CN 13.00 alias patch was not found: $aliasPatch"
     }
 
-    git -C $parserPath apply --check $aliasPatch
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--check', $aliasPatch))) {
         throw 'CN 13.00 alias patch cannot be applied cleanly; inspect the pinned Parser checkout before continuing.'
     }
 
-    git -C $parserPath apply $aliasPatch
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to apply CN 13.00 alias patch.' }
+    Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $aliasPatch) -FailureMessage 'Failed to apply CN 13.00 alias patch.'
     Write-Warning 'Applied experimental CN 13.00 alias patch. Validate a real replay before using its output.'
 }
 
 if ($ApplyCn1305Alias) {
     $cn1305Patch = Join-Path $PSScriptRoot '..\patches\valorant_parser_cn_13_05_alias.patch'
-    git -C $parserPath apply --reverse --check $cn1305Patch 2>$null
-    $cn1305AlreadyApplied = $LASTEXITCODE -eq 0
+    $cn1305AlreadyApplied = Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--reverse', '--check', $cn1305Patch)
     if (-not $cn1305AlreadyApplied) {
-        git -C $parserPath apply --check $cn1305Patch
-        if ($LASTEXITCODE -ne 0) {
+        if (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--check', $cn1305Patch))) {
             throw 'CN 13.05 alias patch cannot be applied cleanly; inspect the pinned Parser checkout.'
         }
-        git -C $parserPath apply $cn1305Patch
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to apply CN 13.05 alias patch.' }
+        Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $cn1305Patch) -FailureMessage 'Failed to apply CN 13.05 alias patch.'
         Write-Warning 'Applied experimental CN 13.05 alias; it must pass full-file validation before production use.'
     } else {
         Write-Host 'Experimental CN 13.05 alias is already applied.'
     }
 }
 
-$sha | Set-Content -LiteralPath (Join-Path $parserPath 'VALCOACH_TESTED_COMMIT.txt') -NoNewline
 Write-Host "Parser commit: $sha"
 Write-Host "Using .NET SDK: $dotnetVersion"
 
@@ -169,6 +200,10 @@ try {
         & $dotnet test 'ValorantReplayParser.sln'
         if ($LASTEXITCODE -ne 0) { throw 'Parser tests failed.' }
     }
+
+    # The launcher uses this marker to distinguish a complete setup from an
+    # interrupted clone, patch, restore or build.
+    $sha | Set-Content -LiteralPath (Join-Path $parserPath 'VALCOACH_TESTED_COMMIT.txt') -NoNewline
 } finally {
     Pop-Location
 }

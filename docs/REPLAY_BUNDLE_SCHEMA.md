@@ -52,7 +52,7 @@ when the payload backend did not run.
 
 ## Validation
 
-`scripts/validate_replay_bundle.py` streams every declared NDJSON file, checks JSON objects, required
-fields, non-negative monotonic timestamps, finite numbers, declared counts and artifact presence.
-A complete Global production Bundle additionally requires zero malformed packets. Recoverable
-partial errors and undecoded groups remain visible and lower the relevant capabilities.
+Bundle validation is implemented in the Rust replay adapter. It checks declared artifacts, required
+fields, timestamps, finite numbers and record structure while ingesting the data. A complete Global
+production Bundle additionally requires zero malformed packets. Recoverable partial errors and
+undecoded groups remain visible and lower the relevant capabilities.
