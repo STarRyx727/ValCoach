@@ -48,26 +48,26 @@ pub enum SearchError {
 }
 
 /// Rotate right for u32
-fn ror32(value: u32, count: u32) -> u32 {
+pub fn ror32(value: u32, count: u32) -> u32 {
     value.rotate_right(count)
 }
 
 /// Rotate left for u32
-fn rol32(value: u32, count: u32) -> u32 {
+pub fn rol32(value: u32, count: u32) -> u32 {
     value.rotate_left(count)
 }
 
 /// Rotate right for u64
-fn ror64(value: u64, count: u32) -> u64 {
+pub fn ror64(value: u64, count: u32) -> u64 {
     value.rotate_right(count)
 }
 
 /// Rotate left for u64
-fn rol64(value: u64, count: u32) -> u64 {
+pub fn rol64(value: u64, count: u32) -> u64 {
     value.rotate_left(count)
 }
 
-fn transform_uint64(value: u64, state: u32) -> u64 {
+pub fn transform_uint64(value: u64, state: u32) -> u64 {
     let ror1 = ror32(state, 1) as u64;
     let ror2 = ror32(state, 2) as u64;
     let ror3 = ror32(state, 3) as u64;
@@ -85,7 +85,7 @@ fn transform_uint64(value: u64, state: u32) -> u64 {
     rol64(v, ((ror1 % 63) + 1) as u32)
 }
 
-fn transform_uint32(value: u32, state: u32) -> u32 {
+pub fn transform_uint32(value: u32, state: u32) -> u32 {
     let rol1 = rol32(state, 1);
     let rol2 = rol32(state, 2);
     let rol3 = rol32(state, 3);
@@ -103,7 +103,7 @@ fn transform_uint32(value: u32, state: u32) -> u32 {
     rol32(v, (rol1 % 31) + 1)
 }
 
-fn initial_prng_a(seed: u32, seed_addend: u32, init_a_seed_addend: u32) -> u64 {
+pub fn initial_prng_a(seed: u32, seed_addend: u32, init_a_seed_addend: u32) -> u64 {
     let seed_plus = seed.wrapping_add(seed_addend);
     let mixed = (((seed_plus >> 15) ^ seed_plus) >> 12)
         ^ (seed.wrapping_add(init_a_seed_addend)).wrapping_mul(0x02000000)
@@ -111,12 +111,12 @@ fn initial_prng_a(seed: u32, seed_addend: u32, init_a_seed_addend: u32) -> u64 {
     (mixed as u64).wrapping_mul(MULTIPLIER)
 }
 
-fn initial_prng_b(seed: u32) -> u64 {
+pub fn initial_prng_b(seed: u32) -> u64 {
     let mixed = (((seed >> 15) ^ seed) >> 12) ^ (seed << 25) ^ seed;
     (mixed as u64).wrapping_mul(MULTIPLIER)
 }
 
-fn advance_state(state: &mut u32, prng_a: &mut u64, prng_b: &mut u64) -> u8 {
+pub fn advance_state(state: &mut u32, prng_a: &mut u64, prng_b: &mut u64) -> u8 {
     let sum = prng_b.wrapping_add(*prng_a);
     *prng_b ^= *prng_a;
     *prng_a = ror64(*prng_a, 9) ^ (*prng_b << 14) ^ *prng_b;

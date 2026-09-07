@@ -16,3 +16,7 @@ vrf-container = { git = "https://github.com/yakisoba0728/vrfkit.git", rev = "a73
 [[bin]]
 name = "china_transform_search"
 path = "src/bin/china_transform_search.rs"
+
+[[bin]]
+name = "china_known_plaintext"
+path = "src/bin/china_known_plaintext.rs"
