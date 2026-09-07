@@ -13,6 +13,8 @@ jobs:
         with:
           components: clippy,rustfmt
       - run: cargo fmt --all --check
+      - shell: pwsh
+        run: if (-not (Test-Path assets/maps/_Game_Maps_Bonsai_Bonsai.json)) { throw 'Bundled map metadata is missing' }
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings
 

@@ -1,0 +1,194 @@
+{
+  "display_name": "Breeze",
+  "map_url": "/Game/Maps/Foxtrot/Foxtrot",
+  "x_multiplier": 7e-05,
+  "y_multiplier": -7e-05,
+  "x_scalar_to_add": 0.465123,
+  "y_scalar_to_add": 0.833078,
+  "callouts": [
+    {
+      "region_name": "Hall",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 4256.5713,
+        "y": 2491.0493
+      }
+    },
+    {
+      "region_name": "Bridge",
+      "super_region_name": "A",
+      "location": {
+        "x": 8400,
+        "y": 3525
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 8900,
+        "y": 3525
+      }
+    },
+    {
+      "region_name": "Arches",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 9400,
+        "y": -1300
+      }
+    },
+    {
+      "region_name": "Wood Doors",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 4825,
+        "y": 2550
+      }
+    },
+    {
+      "region_name": "Pillar",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 4175,
+        "y": 475
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 6175,
+        "y": 525
+      }
+    },
+    {
+      "region_name": "Nest",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 8650,
+        "y": 275
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "B",
+      "location": {
+        "x": 2225,
+        "y": -4175
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": 3550,
+        "y": -4450
+      }
+    },
+    {
+      "region_name": "Elbow",
+      "super_region_name": "B",
+      "location": {
+        "x": 4675,
+        "y": -2900
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 6450,
+        "y": -5650
+      }
+    },
+    {
+      "region_name": "Tunnel",
+      "super_region_name": "B",
+      "location": {
+        "x": 6450,
+        "y": -1450
+      }
+    },
+    {
+      "region_name": "Ramp",
+      "super_region_name": "A",
+      "location": {
+        "x": 7300,
+        "y": 2725
+      }
+    },
+    {
+      "region_name": "Back",
+      "super_region_name": "B",
+      "location": {
+        "x": 7550,
+        "y": -5675
+      }
+    },
+    {
+      "region_name": "Wall",
+      "super_region_name": "B",
+      "location": {
+        "x": 8550,
+        "y": -3000
+      }
+    },
+    {
+      "region_name": "Cannon",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2900,
+        "y": -1850
+      }
+    },
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1575,
+        "y": 475
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": -1250,
+        "y": 3400
+      }
+    },
+    {
+      "region_name": "Shop",
+      "super_region_name": "A",
+      "location": {
+        "x": 2150,
+        "y": 4250
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 4825,
+        "y": 6325
+      }
+    },
+    {
+      "region_name": "Pyramids",
+      "super_region_name": "A",
+      "location": {
+        "x": 5200,
+        "y": 5450
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": -575,
+        "y": -450
+      }
+    }
+  ]
+}

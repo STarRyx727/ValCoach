@@ -1,0 +1,186 @@
+{
+  "display_name": "Ascent",
+  "map_url": "/Game/Maps/Ascent/Ascent",
+  "x_multiplier": 7e-05,
+  "y_multiplier": -7e-05,
+  "x_scalar_to_add": 0.813895,
+  "y_scalar_to_add": 0.573242,
+  "callouts": [
+    {
+      "region_name": "Tree",
+      "super_region_name": "A",
+      "location": {
+        "x": 3980.9062,
+        "y": -5938.758
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 4489.032,
+        "y": -3014.0515
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 5321.6206,
+        "y": -4710.1274
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "A",
+      "location": {
+        "x": 4023.0244,
+        "y": -8180.692
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 6153.585,
+        "y": -6626.2114
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 60,
+        "y": 50
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "B",
+      "location": {
+        "x": -1490.5864,
+        "y": -1389.9706
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": -1983.6713,
+        "y": -5840.8125
+      }
+    },
+    {
+      "region_name": "Boat House",
+      "super_region_name": "B",
+      "location": {
+        "x": -4484.774,
+        "y": -7763.3584
+      }
+    },
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1122.2262,
+        "y": -5951.704
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": -2344.065,
+        "y": -7548.511
+      }
+    },
+    {
+      "region_name": "Catwalk",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2315.7944,
+        "y": -4127.2554
+      }
+    },
+    {
+      "region_name": "Cubby",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 3387.3167,
+        "y": -5129.764
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 1995.2354,
+        "y": -9744.923
+      }
+    },
+    {
+      "region_name": "Garden",
+      "super_region_name": "A",
+      "location": {
+        "x": 3773.6653,
+        "y": -7551.3535
+      }
+    },
+    {
+      "region_name": "Market",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1089.1044,
+        "y": -7363.1914
+      }
+    },
+    {
+      "region_name": "Courtyard",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1222.7029,
+        "y": -4586.6
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -632.0929,
+        "y": -4280.2573
+      }
+    },
+    {
+      "region_name": "Pizza",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1801.5667,
+        "y": -7262.1704
+      }
+    },
+    {
+      "region_name": "Rafters",
+      "super_region_name": "A",
+      "location": {
+        "x": 6129.893,
+        "y": -8210
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2753.9297,
+        "y": -2129.6155
+      }
+    },
+    {
+      "region_name": "Wine",
+      "super_region_name": "A",
+      "location": {
+        "x": 7358.7407,
+        "y": -4689.2705
+      }
+    }
+  ]
+}

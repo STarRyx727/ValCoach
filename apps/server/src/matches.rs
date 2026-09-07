@@ -173,10 +173,14 @@ pub async fn list_maps(
     session: tower_sessions::Session,
 ) -> Result<Json<Vec<serde_json::Value>>, AuthApiError> {
     let _ = session;
-    let maps_dir = std::env::current_dir()
-        .unwrap_or_default()
-        .join("data")
-        .join("maps");
+    let maps_dir = std::env::var_os("VALCOACH_MAPS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_default()
+                .join("assets")
+                .join("maps")
+        });
     tracing::info!(maps_dir = %maps_dir.display(), "loading maps from disk");
     let mut maps = Vec::new();
     match tokio::fs::read_dir(&maps_dir).await {

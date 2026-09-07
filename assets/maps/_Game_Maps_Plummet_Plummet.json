@@ -1,0 +1,202 @@
+{
+  "display_name": "Summit",
+  "map_url": "/Game/Maps/Plummet/Plummet",
+  "x_multiplier": 7.5e-05,
+  "y_multiplier": -7.5e-05,
+  "x_scalar_to_add": 0.047401,
+  "y_scalar_to_add": 0.978891,
+  "callouts": [
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 7500,
+        "y": 5825
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 4025,
+        "y": 6525
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 3174.9998,
+        "y": 8625
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 5500,
+        "y": 8625
+      }
+    },
+    {
+      "region_name": "Garden",
+      "super_region_name": "A",
+      "location": {
+        "x": 7675,
+        "y": 9925
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 7675,
+        "y": 11600
+      }
+    },
+    {
+      "region_name": "Art",
+      "super_region_name": "A",
+      "location": {
+        "x": 9525,
+        "y": 9925
+      }
+    },
+    {
+      "region_name": "Cave",
+      "super_region_name": "A",
+      "location": {
+        "x": 9525,
+        "y": 12125
+      }
+    },
+    {
+      "region_name": "Hall",
+      "super_region_name": "A",
+      "location": {
+        "x": 9525,
+        "y": 8600
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 8250,
+        "y": 8050
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "B",
+      "location": {
+        "x": 5125,
+        "y": 3225
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 12075,
+        "y": 6175
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 8700,
+        "y": 5825
+      }
+    },
+    {
+      "region_name": "Gym",
+      "super_region_name": "B",
+      "location": {
+        "x": 10525,
+        "y": 3100.0002
+      }
+    },
+    {
+      "region_name": "Trophy",
+      "super_region_name": "B",
+      "location": {
+        "x": 9075,
+        "y": 3675.0002
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "B",
+      "location": {
+        "x": 10175,
+        "y": 1450.0001
+      }
+    },
+    {
+      "region_name": "Drop",
+      "super_region_name": "B",
+      "location": {
+        "x": 9850,
+        "y": 75.00015
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 8550,
+        "y": 1375.0001
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": 7500,
+        "y": 3775
+      }
+    },
+    {
+      "region_name": "Fountain",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 5675,
+        "y": 6175
+      }
+    },
+    {
+      "region_name": "Bend",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 6475,
+        "y": 7850
+      }
+    },
+    {
+      "region_name": "Tiles",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 4960.938,
+        "y": 4233.579
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": 6500,
+        "y": 1849.9999
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 1100,
+        "y": -100
+      }
+    }
+  ]
+}

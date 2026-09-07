@@ -1,0 +1,178 @@
+{
+  "display_name": "Corrode",
+  "map_url": "/Game/Maps/Rook/Rook",
+  "x_multiplier": 7e-05,
+  "y_multiplier": -7e-05,
+  "x_scalar_to_add": 0.526158,
+  "y_scalar_to_add": 0.5,
+  "callouts": [
+    {
+      "region_name": "Crane",
+      "super_region_name": "A",
+      "location": {
+        "x": 4458.2866,
+        "y": -3999.4976
+      }
+    },
+    {
+      "region_name": "Elbow",
+      "super_region_name": "A",
+      "location": {
+        "x": 5583.2793,
+        "y": -2074.4995
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 1783.2793,
+        "y": -1049.5073
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 4333.2793,
+        "y": 2600.4976
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 5933.2793,
+        "y": 1225.4977
+      }
+    },
+    {
+      "region_name": "Pocket",
+      "super_region_name": "A",
+      "location": {
+        "x": 5583.2793,
+        "y": -799.4995
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 3458.2793,
+        "y": -1824.5004
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": -25,
+        "y": 5675
+      }
+    },
+    {
+      "region_name": "Yard",
+      "super_region_name": "A",
+      "location": {
+        "x": 4333.2793,
+        "y": -799.50256
+      }
+    },
+    {
+      "region_name": "Arch",
+      "super_region_name": "B",
+      "location": {
+        "x": -3216.7134,
+        "y": -4399.5156
+      }
+    },
+    {
+      "region_name": "Elbow",
+      "super_region_name": "B",
+      "location": {
+        "x": -5591.7236,
+        "y": -2924.5183
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": -1291.7185,
+        "y": -1824.5093
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "B",
+      "location": {
+        "x": -1666.7264,
+        "y": 2775.4875
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": -2716.7236,
+        "y": 750.4862
+      }
+    },
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 133.27757,
+        "y": 175.49072
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": -2716.7234,
+        "y": -1174.5138
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "B",
+      "location": {
+        "x": -3516.7236,
+        "y": -2924.5183
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 8.286561,
+        "y": -5749.507
+      }
+    },
+    {
+      "region_name": "Stairs",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 133.28067,
+        "y": -1474.5093
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 133.28421,
+        "y": -3099.5093
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 133.2815,
+        "y": -1824.5093
+      }
+    }
+  ]
+}

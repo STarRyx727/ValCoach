@@ -583,6 +583,9 @@ impl Database {
         let mut counts = PersistedRecordCounts::default();
         let mut semantic =
             SemanticBuilder::load(match_id, replay.bundle.server_events_path.as_deref()).await?;
+        if let Some(map) = &replay.metadata.map {
+            semantic.set_map(map);
+        }
         let records = ParsedBundleSource.records(replay.bundle.clone(), cancel);
         futures_util::pin_mut!(records);
 
@@ -644,9 +647,6 @@ impl Database {
         let finalized_roster = finalized_roster.unwrap_or_else(|| roster.finalize(match_id));
         if counts.movement_count == 0 {
             semantic.resolve_players(&finalized_roster);
-        }
-        if let Some(map) = &replay.metadata.map {
-            semantic.set_map(map);
         }
         semantic.set_duration(replay.metadata.duration_ms);
         semantic.finish();
@@ -1752,6 +1752,24 @@ impl Database {
             .collect()
     }
 
+    pub async fn delete_agent_history_for_match(
+        &self,
+        user_id: &str,
+        match_id: &str,
+    ) -> Result<u64, DatabaseError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM conversations
+            WHERE user_id = ? AND match_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(match_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Build a deterministic compact replay for the entire match.
     /// This is a 0-LLM-token compilation that summarizes each round into:
     /// - route segments (area transitions with timing)
@@ -1764,9 +1782,6 @@ impl Database {
         user_id: &str,
         match_id: &str,
     ) -> Result<Value, DatabaseError> {
-        if let Some(cached) = self.get_cached_compact(match_id).await? {
-            return Ok(cached);
-        }
         let replay = self
             .find_match_for_user(user_id, match_id)
             .await?
@@ -1776,7 +1791,16 @@ impl Database {
             .list_players_for_match_for_user(user_id, match_id)
             .await?;
         let bound_player = self.find_bound_player_for_match(user_id, match_id).await?;
+        if let Some(cached) = self.get_cached_compact(match_id).await?
+            && cached.get("player_id").and_then(Value::as_str) == bound_player.as_deref()
+        {
+            return Ok(cached);
+        }
         let diagnostics = self.semantic_diagnostics(match_id).await?;
+        let bound_team = players
+            .iter()
+            .find(|player| Some(player.id.as_str()) == bound_player.as_deref())
+            .and_then(|player| player.team.as_deref());
 
         let mut compact_rounds = Vec::new();
         for round in &rounds {
@@ -1812,7 +1836,11 @@ impl Database {
             compact_rounds.push(json!({
                 "round_no": round_no,
                 "human_round": format!("R{}", round_no),
-                "side": round.get("team_a_side"),
+                "side": if bound_team == Some("team_b") {
+                    round.get("team_b_side")
+                } else {
+                    round.get("team_a_side")
+                },
                 "winner": round.get("winner_team"),
                 "start_ms": round_start_ms,
                 "end_ms": round.get("end_ms"),
@@ -1825,6 +1853,7 @@ impl Database {
 
         let compact = json!({
             "match_id": match_id,
+            "player_id": bound_player,
             "map": replay.metadata.map.as_deref().map(domain_map_display_name),
             "map_raw": replay.metadata.map,
             "duration_ms": replay.metadata.duration_ms,

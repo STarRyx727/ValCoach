@@ -1,0 +1,210 @@
+{
+  "display_name": "Icebox",
+  "map_url": "/Game/Maps/Port/Port",
+  "x_multiplier": 7.2e-05,
+  "y_multiplier": -7.2e-05,
+  "x_scalar_to_add": 0.460214,
+  "y_scalar_to_add": 0.304687,
+  "callouts": [
+    {
+      "region_name": "Garage",
+      "super_region_name": "B",
+      "location": {
+        "x": -1250,
+        "y": -1425
+      }
+    },
+    {
+      "region_name": "Belt",
+      "super_region_name": "A",
+      "location": {
+        "x": -7200,
+        "y": -850
+      }
+    },
+    {
+      "region_name": "Nest",
+      "super_region_name": "A",
+      "location": {
+        "x": -6650,
+        "y": 900
+      }
+    },
+    {
+      "region_name": "Pipes",
+      "super_region_name": "A",
+      "location": {
+        "x": -6150,
+        "y": 450
+      }
+    },
+    {
+      "region_name": "Rafters",
+      "super_region_name": "A",
+      "location": {
+        "x": -6450,
+        "y": 4250
+      }
+    },
+    {
+      "region_name": "Screen",
+      "super_region_name": "A",
+      "location": {
+        "x": -5100,
+        "y": 3325
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": -6400,
+        "y": 3200
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": -3925,
+        "y": -4450
+      }
+    },
+    {
+      "region_name": "Yellow",
+      "super_region_name": "B",
+      "location": {
+        "x": 2050,
+        "y": -25
+      }
+    },
+    {
+      "region_name": "Back",
+      "super_region_name": "B",
+      "location": {
+        "x": 251,
+        "y": 4269
+      }
+    },
+    {
+      "region_name": "Cubby",
+      "super_region_name": "B",
+      "location": {
+        "x": 1050,
+        "y": -975
+      }
+    },
+    {
+      "region_name": "Green",
+      "super_region_name": "B",
+      "location": {
+        "x": -450,
+        "y": -700
+      }
+    },
+    {
+      "region_name": "Hall",
+      "super_region_name": "B",
+      "location": {
+        "x": 300,
+        "y": 3050
+      }
+    },
+    {
+      "region_name": "Hut",
+      "super_region_name": "B",
+      "location": {
+        "x": -1425,
+        "y": 4400
+      }
+    },
+    {
+      "region_name": "Kitchen",
+      "super_region_name": "B",
+      "location": {
+        "x": -2221.3618,
+        "y": 3403.649
+      }
+    },
+    {
+      "region_name": "Orange",
+      "super_region_name": "B",
+      "location": {
+        "x": -632,
+        "y": 1700
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 1725,
+        "y": 2575
+      }
+    },
+    {
+      "region_name": "Snowman",
+      "super_region_name": "B",
+      "location": {
+        "x": 2250,
+        "y": 3960.3218
+      }
+    },
+    {
+      "region_name": "Snow Pile",
+      "super_region_name": "B",
+      "location": {
+        "x": -1775,
+        "y": 2500
+      }
+    },
+    {
+      "region_name": "Tube",
+      "super_region_name": "B",
+      "location": {
+        "x": -2300,
+        "y": 1275
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": -3750,
+        "y": 7075
+      }
+    },
+    {
+      "region_name": "Blue",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -2825,
+        "y": 975
+      }
+    },
+    {
+      "region_name": "Boiler",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -3375,
+        "y": 2925
+      }
+    },
+    {
+      "region_name": "Pallet",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -4450,
+        "y": 1775
+      }
+    },
+    {
+      "region_name": "Fence",
+      "super_region_name": "B",
+      "location": {
+        "x": 363,
+        "y": 3595
+      }
+    }
+  ]
+}

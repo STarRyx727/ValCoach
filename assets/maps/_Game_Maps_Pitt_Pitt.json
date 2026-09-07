@@ -1,0 +1,218 @@
+{
+  "display_name": "Pearl",
+  "map_url": "/Game/Maps/Pitt/Pitt",
+  "x_multiplier": 7.8e-05,
+  "y_multiplier": -7.8e-05,
+  "x_scalar_to_add": 0.480469,
+  "y_scalar_to_add": 0.916016,
+  "callouts": [
+    {
+      "region_name": "Hall",
+      "super_region_name": "B",
+      "location": {
+        "x": 7495.6177,
+        "y": -4954.14
+      }
+    },
+    {
+      "region_name": "Doors",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 4701.24,
+        "y": 597.23285
+      }
+    },
+    {
+      "region_name": "Connector",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 6047.0464,
+        "y": 1800.0436
+      }
+    },
+    {
+      "region_name": "Water",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 7808.019,
+        "y": 1800.0419
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 11092.458,
+        "y": 378.79883
+      }
+    },
+    {
+      "region_name": "Flowers",
+      "super_region_name": "A",
+      "location": {
+        "x": 9263.969,
+        "y": 2507.3403
+      }
+    },
+    {
+      "region_name": "Secret",
+      "super_region_name": "A",
+      "location": {
+        "x": 10458.144,
+        "y": 3831.5127
+      }
+    },
+    {
+      "region_name": "Dugout",
+      "super_region_name": "A",
+      "location": {
+        "x": 7660.6597,
+        "y": 5854.0664
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 6613.846,
+        "y": 5569.5254
+      }
+    },
+    {
+      "region_name": "Records",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 8973.152,
+        "y": -1470.2677
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2075,
+        "y": 725
+      }
+    },
+    {
+      "region_name": "Tunnel",
+      "super_region_name": "B",
+      "location": {
+        "x": 8973.152,
+        "y": -2155.1323
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "B",
+      "location": {
+        "x": 8533.423,
+        "y": -2851.3516
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 6368.5713,
+        "y": 3825
+      }
+    },
+    {
+      "region_name": "Restaurant",
+      "super_region_name": "A",
+      "location": {
+        "x": 4430.452,
+        "y": 2813.1267
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": 4503.3633,
+        "y": -591.64435
+      }
+    },
+    {
+      "region_name": "Art",
+      "super_region_name": "A",
+      "location": {
+        "x": 4561.95,
+        "y": 3406.8806
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 6055.2104,
+        "y": 3782.704
+      }
+    },
+    {
+      "region_name": "Plaza",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2750,
+        "y": -325
+      }
+    },
+    {
+      "region_name": "Shops",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 800,
+        "y": -1450
+      }
+    },
+    {
+      "region_name": "Club",
+      "super_region_name": "B",
+      "location": {
+        "x": 800,
+        "y": -1450
+      }
+    },
+    {
+      "region_name": "Ramp",
+      "super_region_name": "B",
+      "location": {
+        "x": 1750,
+        "y": -3800
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": 4050,
+        "y": -4375
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 5800,
+        "y": -2850
+      }
+    },
+    {
+      "region_name": "Screen",
+      "super_region_name": "B",
+      "location": {
+        "x": 6260.4326,
+        "y": -5000.933
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": -550,
+        "y": -600
+      }
+    }
+  ]
+}

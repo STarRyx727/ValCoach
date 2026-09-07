@@ -1,0 +1,202 @@
+{
+  "display_name": "Split",
+  "map_url": "/Game/Maps/Bonsai/Bonsai",
+  "x_multiplier": 7.8e-05,
+  "y_multiplier": -7.8e-05,
+  "x_scalar_to_add": 0.842188,
+  "y_scalar_to_add": 0.697578,
+  "callouts": [
+    {
+      "region_name": "Back",
+      "super_region_name": "A",
+      "location": {
+        "x": 7345.049,
+        "y": -7858.0405
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 6814.217,
+        "y": -2457.7468
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 6279.9795,
+        "y": -4492.833
+      }
+    },
+    {
+      "region_name": "Rafters",
+      "super_region_name": "A",
+      "location": {
+        "x": 5434.726,
+        "y": -6258.442
+      }
+    },
+    {
+      "region_name": "Ramps",
+      "super_region_name": "A",
+      "location": {
+        "x": 4330,
+        "y": -4750
+      }
+    },
+    {
+      "region_name": "Screens",
+      "super_region_name": "A",
+      "location": {
+        "x": 5648.7144,
+        "y": -8868.611
+      }
+    },
+    {
+      "region_name": "Sewer",
+      "super_region_name": "A",
+      "location": {
+        "x": 4862.6064,
+        "y": -2367.2578
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 6588.6597,
+        "y": -6761.131
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "A",
+      "location": {
+        "x": 4636.7925,
+        "y": -6748.2334
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 1901.97,
+        "y": 59.588867
+      }
+    },
+    {
+      "region_name": "Alley",
+      "super_region_name": "B",
+      "location": {
+        "x": -1158.0048,
+        "y": -8066.301
+      }
+    },
+    {
+      "region_name": "Back",
+      "super_region_name": "B",
+      "location": {
+        "x": -3107.181,
+        "y": -7417.2607
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": -27.670135,
+        "y": -2369.784
+      }
+    },
+    {
+      "region_name": "Garage",
+      "super_region_name": "B",
+      "location": {
+        "x": -2190.7827,
+        "y": -3848.0293
+      }
+    },
+    {
+      "region_name": "Rafters",
+      "super_region_name": "B",
+      "location": {
+        "x": -637.1397,
+        "y": -6070.6167
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": -2167.2456,
+        "y": -6264.7715
+      }
+    },
+    {
+      "region_name": "Stairs",
+      "super_region_name": "B",
+      "location": {
+        "x": 1061.493,
+        "y": -6760.976
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "B",
+      "location": {
+        "x": 168.89589,
+        "y": -5290.194
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "B",
+      "location": {
+        "x": -1271.6421,
+        "y": -1983.6248
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 2142.3635,
+        "y": -8964.969
+      }
+    },
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1922.6552,
+        "y": -2899.4626
+      }
+    },
+    {
+      "region_name": "Mail",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1155.3333,
+        "y": -4808.6436
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2021.9575,
+        "y": -4596.936
+      }
+    },
+    {
+      "region_name": "Vent",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 3155.1648,
+        "y": -5338.5215
+      }
+    }
+  ]
+}

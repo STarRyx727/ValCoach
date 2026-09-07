@@ -1,0 +1,194 @@
+{
+  "display_name": "Abyss",
+  "map_url": "/Game/Maps/Infinity/Infinity",
+  "x_multiplier": 8.1e-05,
+  "y_multiplier": -8.1e-05,
+  "x_scalar_to_add": 0.5,
+  "y_scalar_to_add": 0.5,
+  "callouts": [
+    {
+      "region_name": "Bridge",
+      "super_region_name": "A",
+      "location": {
+        "x": 5700,
+        "y": -375
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 2800,
+        "y": -2450
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 3250,
+        "y": 3400
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 3800,
+        "y": 1650
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 4300,
+        "y": -200
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 950,
+        "y": 4950
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "A",
+      "location": {
+        "x": 3025,
+        "y": -125
+      }
+    },
+    {
+      "region_name": "Bend",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -1700,
+        "y": 1075
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": -2000,
+        "y": -2350
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "B",
+      "location": {
+        "x": -3650,
+        "y": 4025
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": -4450,
+        "y": 1525
+      }
+    },
+    {
+      "region_name": "Nest",
+      "super_region_name": "B",
+      "location": {
+        "x": -4975,
+        "y": 2150
+      }
+    },
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -400,
+        "y": 575
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": -4425,
+        "y": -1175
+      }
+    },
+    {
+      "region_name": "Catwalk",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 600,
+        "y": 525
+      }
+    },
+    {
+      "region_name": "Danger",
+      "super_region_name": "B",
+      "location": {
+        "x": -5850,
+        "y": 700
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 950,
+        "y": -5275
+      }
+    },
+    {
+      "region_name": "Library",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -325,
+        "y": -600
+      }
+    },
+    {
+      "region_name": "Secret",
+      "super_region_name": "A",
+      "location": {
+        "x": 3775,
+        "y": -3850
+      }
+    },
+    {
+      "region_name": "Security",
+      "super_region_name": "A",
+      "location": {
+        "x": 4900,
+        "y": -2975
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 775,
+        "y": -2375
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "B",
+      "location": {
+        "x": -3925,
+        "y": -2500
+      }
+    },
+    {
+      "region_name": "Vent",
+      "super_region_name": "A",
+      "location": {
+        "x": 1700,
+        "y": -325
+      }
+    }
+  ]
+}

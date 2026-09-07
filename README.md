@@ -46,6 +46,17 @@ LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
 
 ## 功能
 
+### 必需能力（R1–R6）
+
+| 要求 | 实现 |
+|---|---|
+| R1 核心逻辑用 Rust | 容器探针、流式规范化、语义建模、地图解析、数据库、指标与 Agent 编排均位于 Rust workspace |
+| R2 用户交互界面 | React Web UI：账户、上传、阵容绑定、回合地图、模型设置与教练对话 |
+| R3 模型与参数可配置 | Provider、模型 ID、Base URL、最大输出 Token 和费用单价均可在 UI 或环境变量配置 |
+| R4 实时进度与打断 | SSE 推送解析阶段与进度；停止按钮调用取消端点并传播 Rust `CancellationToken` |
+| R5 上下文历史管理 | SQLite 按账户/对局保存对话，后续请求加载最近历史；UI 可查看和清空 |
+| R6 Token 与费用 | 每次保存输入/输出/总 Token；配置单价后计算并展示估算费用 |
+
 ### 回放解析
 - 全球 13.05 完整支持：138,065 条事件 + 165,047 条移动样本
 - 国服 13.05 部分导入：服务器时间线 + 阵容（ReplayData 加密常量不同，移动/战斗不可用）
@@ -56,7 +67,7 @@ LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
 - **RoundBuilder**: roundStarted/MulticastEndRound 回合边界 + switchTeams 攻防切换
 - **CombatBuilder**: 射击 burst 合并、伤害事件、击杀归因（server + parser 双源交叉验证）
 - **SpikeBuilder**: plant/defuse/explode + TimedBomb 位置 → 区域
-- **AbilityBuilder**: 从 actor_spawned 提取技能效果对象（如 `Sova Q (SonarPing)`）
+- **AbilityBuilder**: 从 actor_spawned 提取技能效果，并转换为官方英文技能名（如 `Sova — Recon Bolt`）
 - **MapAreaResolver**: Valorant-API callout 区域解析，支持全部竞技地图
 - **Movement**: round/alive/area/yaw/pitch/velocity 完整 enrichment
 
@@ -73,7 +84,10 @@ LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
 ### 前端
 - 三 Tab 布局：**阵容** / **回合** / **教练**
 - 2D 地图查看器：SVG 画布展示玩家路线、战斗标记、Spike 图标
-- Markdown 渲染：标题/粗体/列表/代码块
+- Markdown 渲染：标题/粗体/列表/代码块/表格
+- 解析阶段实时进度与停止按钮
+- 模型、最大输出、Base URL 与费用单价均可在网页配置
+- 对话历史按对局保存、自动带入后续提问，也可手动清空
 - 录像删除：侧栏删除按钮，同时清理本地文件
 - 显示名映射：Hunter→Sova, Bonsai→Split, Deadeye→Chamber
 
@@ -84,25 +98,16 @@ LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
 - Rust 1.97+ (rustup)
 - .NET 10 SDK
 - Node.js 18+
-- Python 3.10+（用于地图数据获取脚本）
 
 ### 安装与运行
 
+克隆仓库后双击根目录的 `start.cmd`，或在 PowerShell 执行：
+
 ```powershell
-# 1. 安装 C# 解析器（检出 + 补丁 + 构建）
-scripts\setup_parser.ps1
-
-# 2. 获取地图元数据（Valorant-API）
-python scripts\fetch_maps.py
-
-# 3. 启动后端
-cargo run -p valcoach-server
-
-# 4. 启动前端（新终端）
-cd web
-npm install
-npm run dev
+.\scripts\start_valcoach.ps1
 ```
+
+首次运行会自动检出固定版本的 C# 解析器、应用仓库内补丁并安装前端依赖；地图元数据和俯视图已经随仓库提供，无需运行额外的 Python 脚本。
 
 后端监听 `http://127.0.0.1:3000`，Vite 开发服务器代理 `/api` 请求。
 
@@ -125,6 +130,8 @@ npm run dev
 - Base URL（兼容接口必填）
 - 最大输出 Tokens
 - 可选：每百万 Token 价格（用于成本估算）
+
+网页提供当前模型预设：OpenAI 的 GPT-6 / GPT-5.6 系列、Claude 5 / 4.6 系列、DeepSeek V4 系列；仍可自由输入兼容服务支持的模型 ID。DeepSeek 默认使用 `deepseek-v4-flash`。
 
 ## 验证
 

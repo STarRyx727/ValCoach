@@ -3,6 +3,7 @@ use std::{collections::HashMap, env, fmt, sync::Arc, time::Duration};
 use axum::{
     Json,
     extract::{Path, State},
+    http::StatusCode,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ use crate::{
 
 const MAX_QUESTION_BYTES: usize = 4_000;
 const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 4_096;
+const MAX_MAX_OUTPUT_TOKENS: u32 = 393_216;
 const SYSTEM_PROMPT: &str = r#"You are ValCoach, an evidence-grounded VALORANT replay coach.
 Use only facts in <replay_context>; never invent missing replay facts, player identity, units, rounds, kills, or causes.
 Check the capability map before making each factual claim. If a capability is partial or unsupported, state the limitation.
@@ -30,9 +32,8 @@ When referring to positions, use the "area" field (e.g. "A Site", "A Main") rath
 Economy is inferred from buy-phase timing, not individual purchases; state this when discussing economy.
 Abilities include both ultimate events from server and ability-use actor spawns from the parser.
 Always use official VALORANT agent display names, never internal codenames.
-The "agent" field in the context uses internal codenames (e.g. "Hunter", "Deadeye", "Sprinter", "Wushu", "Vampire", "Clay", "Smonk", "Sarge", "Pine", "AggroBot").
-You MUST translate them to official names: Hunter->Sova, Deadeye->Chamber, Sprinter->Neon, Wushu->Jett, Vampire->Reyna, Clay->Raze, Smonk->Clove, Sarge->Brimstone, Pine->Vyse, AggroBot->Gekko.
-Similarly, map names must use display names: Bonsai->Split, Duality->Bind, Triad->Haven, Juliett->Sunset, Jam->Lotus, Pitt->Pearl, Canyon->Fracture, Foxtrot->Breeze, Port->Icebox, Infinity->Abyss, Rook->Corrode.
+The "agent" field can contain replay codenames. Translate them to official English display names. In particular Pine is Veto, Nox is Vyse, Iris is Miks, Cashew is Tejo, Terra is Waylay, and AggroBot is Gekko.
+Similarly, map names must use display names: Bonsai->Split, Duality->Bind, Triad->Haven, Juliett->Sunset, Jam->Lotus, Pitt->Pearl, Canyon->Fracture, Foxtrot->Breeze, Port->Icebox, Infinity->Abyss, Rook->Corrode, Plummet->Summit.
 Weapon names in shot events may be null or use internal names; use common names (e.g. "Classic", "Vandal", "Phantom") when available.
 If personal_issues are present in the context, relate current observations to known recurring problems and mention trends.
 When you identify a recurring tactical issue, add a <coaching_issue> block at the end with: issue_key, category, title, description, map, side, area, severity (0-1), confidence (0-1).
@@ -62,6 +63,7 @@ pub struct AgentStatus {
     pub model: Option<String>,
     pub source: Option<String>,
     pub api_key_in_memory: bool,
+    pub max_output_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,6 +131,7 @@ impl AgentService {
                 model: None,
                 source: None,
                 api_key_in_memory: false,
+                max_output_tokens: None,
             };
         };
         AgentStatus {
@@ -137,6 +140,7 @@ impl AgentService {
             model: Some(provider.model.clone()),
             source: Some(source.to_owned()),
             api_key_in_memory: source == "web",
+            max_output_tokens: Some(provider.max_output_tokens),
         }
     }
 
@@ -258,9 +262,24 @@ impl AgentService {
             "personal_issues": personal_issues,
             "limitations": limitations,
         });
+        let previous = self
+            .database
+            .list_agent_messages_for_match(user_id, match_id)
+            .await?;
+        let history_start = previous.len().saturating_sub(12);
+        let conversation_history: Vec<Value> = previous[history_start..]
+            .iter()
+            .map(|message| {
+                json!({
+                    "role": message.role,
+                    "content": message.content.chars().take(4_000).collect::<String>(),
+                })
+            })
+            .collect();
         let input = format!(
-            "<replay_context>\n{}\n</replay_context>\n<player_question>\n{}\n</player_question>",
+            "<replay_context>\n{}\n</replay_context>\n<conversation_history>\n{}\n</conversation_history>\n<player_question>\n{}\n</player_question>",
             serde_json::to_string_pretty(&context)?,
+            serde_json::to_string_pretty(&conversation_history)?,
             question
         );
         let reply = provider.complete(SYSTEM_PROMPT, &input).await?;
@@ -440,10 +459,10 @@ impl LlmProvider {
         let max_output_tokens = settings
             .max_output_tokens
             .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS);
-        if max_output_tokens == 0 || max_output_tokens > 32_768 {
-            return Err(AgentError::Configuration(
-                "max output tokens must be between 1 and 32768".to_owned(),
-            ));
+        if max_output_tokens == 0 || max_output_tokens > MAX_MAX_OUTPUT_TOKENS {
+            return Err(AgentError::Configuration(format!(
+                "max output tokens must be between 1 and {MAX_MAX_OUTPUT_TOKENS}"
+            )));
         }
         validate_base_url(&base_url)?;
         let base_url = normalize_base_url(kind, &base_url);
@@ -716,8 +735,10 @@ fn normalize_base_url(kind: ProviderKind, base_url: &str) -> String {
 
 fn normalize_model(kind: ProviderKind, model: &str) -> String {
     let model = model.trim();
-    if kind == ProviderKind::DeepSeek && model.eq_ignore_ascii_case("deepseek") {
-        "deepseek-chat".to_owned()
+    if kind == ProviderKind::DeepSeek
+        && (model.eq_ignore_ascii_case("deepseek") || model.eq_ignore_ascii_case("deepseek-chat"))
+    {
+        "deepseek-v4-flash".to_owned()
     } else {
         model.to_owned()
     }
@@ -1096,6 +1117,21 @@ pub async fn history(
         .map_err(|error| AuthApiError::internal(error.to_string()))
 }
 
+pub async fn clear_history(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Path(match_id): Path<String>,
+) -> Result<StatusCode, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    state
+        .auth
+        .database
+        .delete_agent_history_for_match(&user_id, &match_id)
+        .await
+        .map_err(|error| AuthApiError::internal(error.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn usage(
     State(state): State<AppState>,
     session: tower_sessions::Session,
@@ -1197,10 +1233,14 @@ mod tests {
     };
 
     #[test]
-    fn deepseek_provider_name_is_normalized_to_chat_model() {
+    fn deepseek_legacy_names_are_normalized_to_v4_flash() {
         assert_eq!(
             normalize_model(ProviderKind::DeepSeek, "DeepSeek"),
-            "deepseek-chat"
+            "deepseek-v4-flash"
+        );
+        assert_eq!(
+            normalize_model(ProviderKind::DeepSeek, "deepseek-chat"),
+            "deepseek-v4-flash"
         );
         assert_eq!(
             normalize_model(ProviderKind::DeepSeek, "deepseek-reasoner"),

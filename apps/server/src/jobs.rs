@@ -1097,7 +1097,7 @@ mod tests {
                 .await
                 .expect("selected player deaths");
                 assert_eq!(rounds, 20);
-                assert_eq!(first_round, 0);
+                assert_eq!(first_round, 1);
                 assert_eq!(deaths, 161);
                 assert_eq!(selected_shots, 304);
                 assert_eq!(selected_movement, 16_762);

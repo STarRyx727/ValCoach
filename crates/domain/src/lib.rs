@@ -15,15 +15,34 @@ pub type PlayerId = String;
 /// "Hunter" -> "Sova", "Clay" -> "Raze", etc.
 pub fn agent_display_name(codename: &str) -> &str {
     match codename {
-        "AggroBot" => "Gekko",
+        "AggroBot" | "Aggrobot" => "Gekko",
+        "BountyHunter" => "Fade",
+        "Breach" => "Breach",
+        "Cable" => "Deadlock",
+        "Cashew" => "Tejo",
         "Clay" => "Raze",
         "Deadeye" => "Chamber",
+        "Grenadier" => "KAY/O",
+        "Guide" => "Skye",
+        "Gumshoe" => "Cypher",
         "Hunter" => "Sova",
-        "Pine" => "Vyse",
+        "Iris" => "Miks",
+        "Killjoy" => "Killjoy",
+        "Mage" => "Harbor",
+        "Nox" => "Vyse",
+        "Pandemic" => "Viper",
+        "Phoenix" => "Phoenix",
+        "Pine" => "Veto",
+        "Rift" => "Astra",
         "Sarge" => "Brimstone",
+        "Sequoia" => "Iso",
         "Smonk" => "Clove",
         "Sprinter" => "Neon",
+        "Stealth" => "Yoru",
+        "Terra" => "Waylay",
+        "Thorne" => "Sage",
         "Vampire" => "Reyna",
+        "Wraith" => "Omen",
         "Wushu" => "Jett",
         _ => codename,
     }
@@ -298,7 +317,17 @@ pub struct ParsedReplay {
 
 #[cfg(test)]
 mod tests {
-    use super::{CoordinateBounds, Vector3};
+    use super::{CoordinateBounds, Vector3, agent_display_name, map_display_name};
+
+    #[test]
+    fn official_display_names_cover_current_replay_codenames() {
+        assert_eq!(agent_display_name("Pine"), "Veto");
+        assert_eq!(agent_display_name("Nox"), "Vyse");
+        assert_eq!(agent_display_name("Iris"), "Miks");
+        assert_eq!(agent_display_name("Cashew"), "Tejo");
+        assert_eq!(agent_display_name("Terra"), "Waylay");
+        assert_eq!(map_display_name("/Game/Maps/Plummet/Plummet"), "Summit");
+    }
 
     #[test]
     fn coordinate_bounds_expand_for_each_point() {

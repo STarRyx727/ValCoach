@@ -1,0 +1,234 @@
+{
+  "display_name": "Lotus",
+  "map_url": "/Game/Maps/Jam/Jam",
+  "x_multiplier": 7.2e-05,
+  "y_multiplier": -7.2e-05,
+  "x_scalar_to_add": 0.454789,
+  "y_scalar_to_add": 0.917752,
+  "callouts": [
+    {
+      "region_name": "Top",
+      "super_region_name": "A",
+      "location": {
+        "x": 9260.3,
+        "y": 5045.5884
+      }
+    },
+    {
+      "region_name": "Drop",
+      "super_region_name": "A",
+      "location": {
+        "x": 9516.38,
+        "y": 6092.8936
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 7735.5396,
+        "y": 5557.309
+      }
+    },
+    {
+      "region_name": "Hut",
+      "super_region_name": "A",
+      "location": {
+        "x": 7917.4614,
+        "y": 5557.309
+      }
+    },
+    {
+      "region_name": "Tree",
+      "super_region_name": "A",
+      "location": {
+        "x": 6149.525,
+        "y": 5557.309
+      }
+    },
+    {
+      "region_name": "Door",
+      "super_region_name": "A",
+      "location": {
+        "x": 5608.7563,
+        "y": 5203.91
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 5288.3022,
+        "y": 4159.762
+      }
+    },
+    {
+      "region_name": "Rubble",
+      "super_region_name": "A",
+      "location": {
+        "x": 4401.0713,
+        "y": 4918.189
+      }
+    },
+    {
+      "region_name": "Root",
+      "super_region_name": "A",
+      "location": {
+        "x": 4401.0713,
+        "y": 3294.1523
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 2685.951,
+        "y": 2927.1755
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "C",
+      "location": {
+        "x": 1403.5685,
+        "y": -1576.5884
+      }
+    },
+    {
+      "region_name": "Pillars",
+      "super_region_name": "B",
+      "location": {
+        "x": 3565.3691,
+        "y": 668.18317
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": 4876.832,
+        "y": -47.87195
+      }
+    },
+    {
+      "region_name": "Door",
+      "super_region_name": "C",
+      "location": {
+        "x": 4818.6655,
+        "y": -1752.8021
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 6368.0327,
+        "y": 668.18317
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 6011.0664,
+        "y": 2087.6528
+      }
+    },
+    {
+      "region_name": "Upper",
+      "super_region_name": "B",
+      "location": {
+        "x": 7682.943,
+        "y": 1517.3606
+      }
+    },
+    {
+      "region_name": "Waterfall",
+      "super_region_name": "C",
+      "location": {
+        "x": 6719.804,
+        "y": -1994.2986
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "C",
+      "location": {
+        "x": 7504.109,
+        "y": -1377.893
+      }
+    },
+    {
+      "region_name": "Stairs",
+      "super_region_name": "A",
+      "location": {
+        "x": 8257.875,
+        "y": 3860.9312
+      }
+    },
+    {
+      "region_name": "Mound",
+      "super_region_name": "C",
+      "location": {
+        "x": 3863.7183,
+        "y": -1576.5884
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "C",
+      "location": {
+        "x": 5311.2646,
+        "y": -3148.162
+      }
+    },
+    {
+      "region_name": "Bend",
+      "super_region_name": "C",
+      "location": {
+        "x": 5657.522,
+        "y": -5281.4395
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "C",
+      "location": {
+        "x": 6676.6636,
+        "y": -4265.876
+      }
+    },
+    {
+      "region_name": "Hall",
+      "super_region_name": "C",
+      "location": {
+        "x": 7902.0615,
+        "y": -4265.876
+      }
+    },
+    {
+      "region_name": "Gravel",
+      "super_region_name": "C",
+      "location": {
+        "x": 8936.881,
+        "y": -1752.2874
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 9686.767,
+        "y": 1697.8223
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 1401.2915,
+        "y": 777.29834
+      }
+    }
+  ]
+}

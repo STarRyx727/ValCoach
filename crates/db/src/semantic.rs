@@ -127,6 +127,7 @@ struct TrackPoint {
 pub(super) struct SemanticBuilder {
     match_id: String,
     map_asset_path: Option<String>,
+    map_registry: Option<valcoach_maps::MapRegistry>,
     pub rounds: Vec<SemanticRound>,
     parser_drafts: Vec<CombatDraft>,
     server_drafts: Vec<ServerDraft>,
@@ -179,7 +180,11 @@ impl SemanticBuilder {
             let word1 = words.and_then(|items| items.get(1)).and_then(Value::as_u64);
             let evidence = builder.evidence(None, timestamp_ms, group, "server_events.ndjson", row);
             if group == "roundStarted" {
-                let round_no = word0.unwrap_or(builder.rounds.len() as u64) as u32;
+                // Replay protocol round counters are zero-based. Everything exposed by ValCoach
+                // is one-based so the first playable round is always R1.
+                let round_no = word0
+                    .unwrap_or(builder.rounds.len() as u64)
+                    .saturating_add(1) as u32;
                 builder.rounds.push(SemanticRound {
                     round_no,
                     start_ms: timestamp_ms,
@@ -228,6 +233,10 @@ impl SemanticBuilder {
 
     pub fn set_map(&mut self, map_asset_path: &str) {
         self.map_asset_path = Some(map_asset_path.to_owned());
+        let maps_directory = std::env::var_os("VALCOACH_MAPS_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("assets/maps"));
+        self.map_registry = valcoach_maps::MapRegistry::load_directory(&maps_directory).ok();
     }
 
     pub fn observe_event(&mut self, event: &GenericEvent, source_row: u64) {
@@ -431,7 +440,11 @@ impl SemanticBuilder {
     ) -> MovementEnrichment {
         self.diagnostics.raw_movement_rows += 1;
         let round_no = self.round_for_time(sample.timestamp_ms);
-        let area = resolve_area(&sample.position, self.map_asset_path.as_deref(), None);
+        let area = resolve_area(
+            &sample.position,
+            self.map_asset_path.as_deref(),
+            self.map_registry.as_ref(),
+        );
         if area.is_some() {
             self.diagnostics.resolved_area_rows += 1;
         } else {
@@ -490,10 +503,13 @@ impl SemanticBuilder {
             let mut evidence = draft.evidence;
             evidence.round_no = round_no;
             evidence.player_id = attacker.clone();
-            let area = attacker_position
-                .as_ref()
-                .and_then(split_area)
-                .map(str::to_owned);
+            let area = attacker_position.as_ref().and_then(|position| {
+                resolve_area(
+                    position,
+                    self.map_asset_path.as_deref(),
+                    self.map_registry.as_ref(),
+                )
+            });
             self.combat.push(SemanticCombat {
                 round_no,
                 timestamp_ms: draft.timestamp_ms,
@@ -575,10 +591,13 @@ impl SemanticBuilder {
                     let victim_position = victim
                         .as_deref()
                         .and_then(|player| self.position_at(player, draft.timestamp_ms));
-                    let area = victim_position
-                        .as_ref()
-                        .and_then(split_area)
-                        .map(str::to_owned);
+                    let area = victim_position.as_ref().and_then(|position| {
+                        resolve_area(
+                            position,
+                            self.map_asset_path.as_deref(),
+                            self.map_registry.as_ref(),
+                        )
+                    });
                     let (weapon, hit_region) = self
                         .combat
                         .iter()
@@ -592,6 +611,30 @@ impl SemanticBuilder {
                         })
                         .map(|e| (e.weapon.clone(), e.hit_region.clone()))
                         .unwrap_or((None, None));
+                    if let Some(existing) = self.combat.iter_mut().rev().find(|event| {
+                        event.kind == "kill"
+                            && event.victim_player_id.as_deref() == victim.as_deref()
+                            && (event.timestamp_ms - draft.timestamp_ms).abs() <= 2_000
+                    }) {
+                        // The parser RPC and the server timeline describe the same death.
+                        // Preserve both evidence references without counting two kills.
+                        existing.evidence.push(evidence);
+                        if existing.attacker_player_id.is_none() {
+                            existing.attacker_player_id = attacker;
+                        }
+                        if existing.weapon.is_none() {
+                            existing.weapon = weapon;
+                        }
+                        if existing.hit_region.is_none() {
+                            existing.hit_region = hit_region;
+                        }
+                        if existing.area.is_none() {
+                            existing.area = area;
+                        }
+                        self.diagnostics.kills += 1;
+                        self.diagnostics.deaths += 1;
+                        continue;
+                    }
                     self.combat.push(SemanticCombat {
                         round_no,
                         timestamp_ms: draft.timestamp_ms,
@@ -619,8 +662,13 @@ impl SemanticBuilder {
                         .as_deref()
                         .and_then(|id| self.position_at(id, draft.timestamp_ms))
                         .as_ref()
-                        .and_then(split_area)
-                        .map(str::to_owned);
+                        .and_then(|position| {
+                            resolve_area(
+                                position,
+                                self.map_asset_path.as_deref(),
+                                self.map_registry.as_ref(),
+                            )
+                        });
                     self.abilities.push(SemanticAbility {
                         round_no,
                         timestamp_ms: draft.timestamp_ms,
@@ -641,7 +689,13 @@ impl SemanticBuilder {
                         })
                         .max_by_key(|(time, _)| *time)
                         .map(|(_, position)| position.clone());
-                    let area = position.as_ref().and_then(split_area).map(str::to_owned);
+                    let area = position.as_ref().and_then(|position| {
+                        resolve_area(
+                            position,
+                            self.map_asset_path.as_deref(),
+                            self.map_registry.as_ref(),
+                        )
+                    });
                     self.spike.push(SemanticSpike {
                         round_no,
                         timestamp_ms: draft.timestamp_ms,
@@ -671,10 +725,13 @@ impl SemanticBuilder {
                 .position
                 .as_ref()
                 .and_then(|pos| self.find_nearest_player(pos, draft.timestamp_ms));
-            let area = draft
-                .position
-                .as_ref()
-                .and_then(|pos| resolve_area(pos, self.map_asset_path.as_deref(), None));
+            let area = draft.position.as_ref().and_then(|pos| {
+                resolve_area(
+                    pos,
+                    self.map_asset_path.as_deref(),
+                    self.map_registry.as_ref(),
+                )
+            });
             self.abilities.push(SemanticAbility {
                 round_no,
                 timestamp_ms: draft.timestamp_ms,
@@ -845,62 +902,76 @@ fn clean_hit_region(value: &str) -> String {
         .to_owned()
 }
 
-/// Extract a human-readable ability name from a replication class path.
-/// Examples: "/Game/Characters/Hunter/Q/Ability_Hunter_Q_SonarPing" -> "Sova Q (SonarPing)"
-///           "/Game/Characters/Smonk/NewSmoke/GameObject_Smonk_NewSmoke" -> "Clove E (NewSmoke)"
+/// Convert replay-internal ability paths into Riot's English display names.
 fn extract_ability_name(path: &str) -> Option<String> {
     if !path.contains("Ability_") && !path.contains("GameObject_") && !path.contains("Projectile_")
     {
         return None;
     }
-    if path.contains("Melee_Base") || path.contains("EquippablePickup") {
+    if path.contains("Melee_Base")
+        || path.contains("EquippablePickup")
+        || path.contains("/Passive/")
+        || path.contains("Reclaim_Orb")
+    {
         return None;
     }
-    let agent = path.rsplit('/').nth(1).and_then(|segment| {
-        let codename = segment.strip_suffix("_PC").unwrap_or(segment);
-        let display = match codename {
-            "Hunter" => "Sova",
-            "Clay" => "Raze",
-            "Sprinter" => "Neon",
-            "Vampire" => "Reyna",
-            "Sarge" => "Brimstone",
-            "Smonk" => "Clove",
-            "Wushu" => "Jett",
-            "Pine" => "Vyse",
-            "Deadeye" => "Chamber",
-            "AggroBot" => "Gekko",
-            _ => codename,
-        };
-        (!display.is_empty() && display != "Characters").then(|| display.to_owned())
-    });
-    let ability_slot = if path.contains("/Q/") {
-        Some("Q")
-    } else if path.contains("/E/") {
-        Some("E")
-    } else if path.contains("/4/") {
-        Some("C")
-    } else if path.contains("/X/") {
-        Some("X")
-    } else {
-        None
-    };
-    let effect_name = path.rsplit('/').next().and_then(|name| {
-        let stripped = name
-            .strip_prefix("Ability_")
-            .or_else(|| name.strip_prefix("GameObject_"))
-            .or_else(|| name.strip_prefix("Projectile_"))
-            .unwrap_or(name);
-        let cleaned = stripped
-            .trim_end_matches("_C")
-            .trim_end_matches("_Production")
-            .trim_end_matches("_ProductionNEW");
-        (!cleaned.is_empty()).then(|| cleaned.to_owned())
-    });
-    match (agent, ability_slot, effect_name) {
-        (Some(a), Some(slot), Some(effect)) => Some(format!("{a} {slot} ({effect})")),
-        (Some(a), None, Some(effect)) => Some(format!("{a} ({effect})")),
-        (None, Some(slot), Some(effect)) => Some(format!("{slot} ({effect})")),
-        (_, _, Some(effect)) => Some(effect),
+    let codename = path.split("/Characters/").nth(1)?.split('/').next()?;
+    let official = official_ability_name(codename, path)?;
+    Some(format!(
+        "{} — {official}",
+        valcoach_domain::agent_display_name(codename)
+    ))
+}
+
+fn official_ability_name(codename: &str, path: &str) -> Option<&'static str> {
+    let contains = |needle: &str| path.contains(needle);
+    match codename {
+        "Hunter" if contains("BoltExplosive") => Some("Shock Bolt"),
+        "Hunter" if contains("RevealBolt") || contains("Sonar") => Some("Recon Bolt"),
+        "Hunter" if contains("DeployDrone") => Some("Owl Drone"),
+        "Hunter" if contains("LaserMulti") => Some("Hunter's Fury"),
+        "Sprinter" if contains("Tunnel") => Some("Fast Lane"),
+        "Sprinter" if contains("GroundStrike") => Some("Relay Bolt"),
+        "Sprinter" if contains("Sprint") => Some("High Gear"),
+        "Sprinter" if contains("LightningGun") => Some("Overdrive"),
+        "Smonk" if contains("MapTargetSmoke") || contains("NewSmoke") => Some("Ruse"),
+        "Smonk" if contains("DebuffKnife") => Some("Meddle"),
+        "Smonk" if contains("ReactiveArmor") || contains("BFArmor") => Some("Pick-me-up"),
+        "Smonk" if contains("ReactiveRes") => Some("Not Dead Yet"),
+        "Sarge" if contains("SpeedStim") => Some("Stim Beacon"),
+        "Sarge" if contains("MapTargetSmoke") || contains("SmokeManager") => Some("Sky Smoke"),
+        "Sarge" if contains("Molotov") => Some("Incendiary"),
+        "Sarge" if contains("OrbitalStrike") => Some("Orbital Strike"),
+        "Pine" if contains("SeizeTrap") || contains("TrapGrenade") || contains("Tether_Sphere") => {
+            Some("Chokehold")
+        }
+        "Pine" if contains("UsableTP") || contains("UsableTeleport") => Some("Crosscut"),
+        "Pine" if contains("RadEater") => Some("Interceptor"),
+        "Pine" if contains("SelfBuff") => Some("Evolution"),
+        "AggroBot" | "Aggrobot" if contains("ExplodeyPatch") => Some("Mosh Pit"),
+        "AggroBot" | "Aggrobot" if contains("SeekerNade") => Some("Wingman"),
+        "AggroBot" | "Aggrobot" if contains("DiscTurret") || contains("OrbSpawner") => {
+            Some("Dizzy")
+        }
+        "AggroBot" | "Aggrobot" if contains("RollyExplosion") => Some("Thrash"),
+        "Vampire" if contains("Nearsight") => Some("Leer"),
+        "Vampire" if contains("Heal") => Some("Devour"),
+        "Vampire" if contains("Dismiss") || contains("Escape") => Some("Dismiss"),
+        "Vampire" if contains("Empress") => Some("Empress"),
+        "Wushu" if contains("Smoke") => Some("Cloudburst"),
+        "Wushu" if contains("Dash") => Some("Tailwind"),
+        "Wushu" if contains("Jump") => Some("Updraft"),
+        "Wushu" if contains("Blade") || contains("Knife") => Some("Blade Storm"),
+        "Deadeye" if contains("Trap") => Some("Trademark"),
+        "Deadeye" if contains("Teleporter") => Some("Rendezvous"),
+        "Deadeye" if contains("Pistol") => Some("Headhunter"),
+        "Deadeye" if contains("Giantslayer") => Some("Tour De Force"),
+        "Clay" if contains("Satchel") => Some("Blast Pack"),
+        "Clay" if contains("Projectile_Primary") || contains("SecondarySpawner") => {
+            Some("Paint Shells")
+        }
+        "Clay" if contains("BoomBot") => Some("Boom Bot"),
+        "Clay" if contains("Rocket") => Some("Showstopper"),
         _ => None,
     }
 }
@@ -956,7 +1027,7 @@ pub(super) fn split_area(position: &Vector3) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::split_area;
+    use super::{official_ability_name, split_area};
     use valcoach_domain::Vector3;
 
     #[test]
@@ -976,6 +1047,21 @@ mod tests {
                 z: 0.0
             }),
             Some("B Site")
+        );
+    }
+
+    #[test]
+    fn replay_ability_paths_use_official_english_names() {
+        assert_eq!(
+            official_ability_name("Pine", "/Game/Characters/Pine/Q/Ability_Pine_SeizeTrap"),
+            Some("Chokehold")
+        );
+        assert_eq!(
+            official_ability_name(
+                "Terra",
+                "/Game/Characters/Terra/Passive/Ability_Terra_Passive"
+            ),
+            None
         );
     }
 }

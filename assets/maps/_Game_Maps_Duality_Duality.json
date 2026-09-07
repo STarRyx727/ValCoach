@@ -1,0 +1,202 @@
+{
+  "display_name": "Bind",
+  "map_url": "/Game/Maps/Duality/Duality",
+  "x_multiplier": 5.9e-05,
+  "y_multiplier": -5.9e-05,
+  "x_scalar_to_add": 0.576941,
+  "y_scalar_to_add": 0.967566,
+  "callouts": [
+    {
+      "region_name": "Exit",
+      "super_region_name": "A",
+      "location": {
+        "x": 7550.4106,
+        "y": 5874.497
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 6365.635,
+        "y": -1007.0208
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 6113.239,
+        "y": 3158.823
+      }
+    },
+    {
+      "region_name": "Short",
+      "super_region_name": "A",
+      "location": {
+        "x": 7983.3467,
+        "y": 803.96063
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 10747.902,
+        "y": 2664.4436
+      }
+    },
+    {
+      "region_name": "Teleporter",
+      "super_region_name": "A",
+      "location": {
+        "x": 9432.303,
+        "y": 489.8803
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 161.64832,
+        "y": 77.51108
+      }
+    },
+    {
+      "region_name": "Exit",
+      "super_region_name": "B",
+      "location": {
+        "x": 8921.412,
+        "y": -1763.2295
+      }
+    },
+    {
+      "region_name": "Hall",
+      "super_region_name": "B",
+      "location": {
+        "x": 12981.879,
+        "y": -4941.7544
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": 6361.57,
+        "y": -2621.1829
+      }
+    },
+    {
+      "region_name": "Fountain",
+      "super_region_name": "B",
+      "location": {
+        "x": 5737.1484,
+        "y": -5390.446
+      }
+    },
+    {
+      "region_name": "Long",
+      "super_region_name": "B",
+      "location": {
+        "x": 7666.669,
+        "y": -6512.8022
+      }
+    },
+    {
+      "region_name": "Short",
+      "super_region_name": "B",
+      "location": {
+        "x": 7424.1313,
+        "y": -3056.4531
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 11108.108,
+        "y": -4831.4585
+      }
+    },
+    {
+      "region_name": "Teleporter",
+      "super_region_name": "B",
+      "location": {
+        "x": 9027.776,
+        "y": -7223.8066
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "B",
+      "location": {
+        "x": 8826.788,
+        "y": -4309.4116
+      }
+    },
+    {
+      "region_name": "Bath",
+      "super_region_name": "A",
+      "location": {
+        "x": 9106.541,
+        "y": 4449.6587
+      }
+    },
+    {
+      "region_name": "Cave",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 3920.3887,
+        "y": 256.94193
+      }
+    },
+    {
+      "region_name": "Cubby",
+      "super_region_name": "A",
+      "location": {
+        "x": 8605.168,
+        "y": 174.89832
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 14641.918,
+        "y": -1017.6743
+      }
+    },
+    {
+      "region_name": "Elbow",
+      "super_region_name": "B",
+      "location": {
+        "x": 11212.901,
+        "y": -7095.3335
+      }
+    },
+    {
+      "region_name": "Garden",
+      "super_region_name": "B",
+      "location": {
+        "x": 9144.103,
+        "y": -5598.1274
+      }
+    },
+    {
+      "region_name": "Lamps",
+      "super_region_name": "A",
+      "location": {
+        "x": 10649.471,
+        "y": 79.904434
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "A",
+      "location": {
+        "x": 12872.583,
+        "y": 2556.7708
+      }
+    }
+  ]
+}

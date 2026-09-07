@@ -1,0 +1,186 @@
+{
+  "display_name": "Fracture",
+  "map_url": "/Game/Maps/Canyon/Canyon",
+  "x_multiplier": 7.8e-05,
+  "y_multiplier": -7.8e-05,
+  "x_scalar_to_add": 0.556952,
+  "y_scalar_to_add": 1.155886,
+  "callouts": [
+    {
+      "region_name": "Bridge",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 13204,
+        "y": -756
+      }
+    },
+    {
+      "region_name": "Bench",
+      "super_region_name": "B",
+      "location": {
+        "x": 11473,
+        "y": -2897
+      }
+    },
+    {
+      "region_name": "Arcade",
+      "super_region_name": "B",
+      "location": {
+        "x": 10181,
+        "y": -4179
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "B",
+      "location": {
+        "x": 9155,
+        "y": -5601
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 8178,
+        "y": -5942
+      }
+    },
+    {
+      "region_name": "Generator",
+      "super_region_name": "B",
+      "location": {
+        "x": 8362,
+        "y": -3380
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "B",
+      "location": {
+        "x": 9198,
+        "y": -2741
+      }
+    },
+    {
+      "region_name": "Canteen",
+      "super_region_name": "B",
+      "location": {
+        "x": 7111,
+        "y": -3138
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 8578,
+        "y": 1302
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 9156,
+        "y": -677
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": 5967,
+        "y": -5343
+      }
+    },
+    {
+      "region_name": "Tree",
+      "super_region_name": "B",
+      "location": {
+        "x": 4965,
+        "y": -4109
+      }
+    },
+    {
+      "region_name": "Tunnel",
+      "super_region_name": "B",
+      "location": {
+        "x": 7402,
+        "y": -4058
+      }
+    },
+    {
+      "region_name": "Hall",
+      "super_region_name": "A",
+      "location": {
+        "x": 5063.5464,
+        "y": 2057.6648
+      }
+    },
+    {
+      "region_name": "Door",
+      "super_region_name": "A",
+      "location": {
+        "x": 5807.855,
+        "y": 1940.4603
+      }
+    },
+    {
+      "region_name": "Rope",
+      "super_region_name": "A",
+      "location": {
+        "x": 6638.828,
+        "y": 1052.6461
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": 5878.792,
+        "y": 3450.9639
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 8125.7627,
+        "y": 3373.7861
+      }
+    },
+    {
+      "region_name": "Drop",
+      "super_region_name": "A",
+      "location": {
+        "x": 9306.803,
+        "y": 2826.1626
+      }
+    },
+    {
+      "region_name": "Dish",
+      "super_region_name": "A",
+      "location": {
+        "x": 11296.665,
+        "y": 1391.7144
+      }
+    },
+    {
+      "region_name": "Gate",
+      "super_region_name": "A",
+      "location": {
+        "x": 12962,
+        "y": 1565
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 4345.554,
+        "y": -948.4505
+      }
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "display_name": "Sunset",
+  "map_url": "/Game/Maps/Juliett/Juliett",
+  "x_multiplier": 7.8e-05,
+  "y_multiplier": -7.8e-05,
+  "x_scalar_to_add": 0.5,
+  "y_scalar_to_add": 0.515625,
+  "callouts": [
+    {
+      "region_name": "Boba",
+      "super_region_name": "B",
+      "location": {
+        "x": 2200,
+        "y": -4800
+      }
+    },
+    {
+      "region_name": "Tiles",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -1800,
+        "y": 400
+      }
+    },
+    {
+      "region_name": "Market",
+      "super_region_name": "B",
+      "location": {
+        "x": -200,
+        "y": -3400
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": -600,
+        "y": -5850
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "B",
+      "location": {
+        "x": -2000,
+        "y": -5650
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "B",
+      "location": {
+        "x": -3400,
+        "y": -2600
+      }
+    },
+    {
+      "region_name": "Bottom",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -1800,
+        "y": -2025
+      }
+    },
+    {
+      "region_name": "Courtyard",
+      "super_region_name": "Mid",
+      "location": {
+        "x": -600,
+        "y": -1200
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": -1800,
+        "y": 2000
+      }
+    },
+    {
+      "region_name": "Main",
+      "super_region_name": "A",
+      "location": {
+        "x": -400,
+        "y": 2200
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 2200,
+        "y": 3000
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 1000,
+        "y": 3200
+      }
+    },
+    {
+      "region_name": "Elbow",
+      "super_region_name": "A",
+      "location": {
+        "x": 200,
+        "y": 4200
+      }
+    },
+    {
+      "region_name": "Alley",
+      "super_region_name": "A",
+      "location": {
+        "x": 3400,
+        "y": 3600
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 3805.4785,
+        "y": -1989.0962
+      }
+    },
+    {
+      "region_name": "Top",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 2000,
+        "y": -2000
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": -6025,
+        "y": -400
+      }
+    }
+  ]
+}

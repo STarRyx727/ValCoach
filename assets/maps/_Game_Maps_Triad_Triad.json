@@ -1,0 +1,178 @@
+{
+  "display_name": "Haven",
+  "map_url": "/Game/Maps/Triad/Triad",
+  "x_multiplier": 7.5e-05,
+  "y_multiplier": -7.5e-05,
+  "x_scalar_to_add": 1.09345,
+  "y_scalar_to_add": 0.642728,
+  "callouts": [
+    {
+      "region_name": "Garden",
+      "super_region_name": "A",
+      "location": {
+        "x": 3100.261,
+        "y": -4683.6016
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "A",
+      "location": {
+        "x": 4244.4214,
+        "y": -10715.68
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "A",
+      "location": {
+        "x": 3438.537,
+        "y": -6260.409
+      }
+    },
+    {
+      "region_name": "Long",
+      "super_region_name": "A",
+      "location": {
+        "x": 6209.695,
+        "y": -6901.142
+      }
+    },
+    {
+      "region_name": "Sewer",
+      "super_region_name": "A",
+      "location": {
+        "x": 3452.8735,
+        "y": -7915.7246
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "A",
+      "location": {
+        "x": 6309.3076,
+        "y": -9225.703
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Attacker Side",
+      "location": {
+        "x": 1741.7622,
+        "y": -2642.7925
+      }
+    },
+    {
+      "region_name": "Back",
+      "super_region_name": "B",
+      "location": {
+        "x": 1966.1608,
+        "y": -10664.775
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "B",
+      "location": {
+        "x": 1884.706,
+        "y": -9231.335
+      }
+    },
+    {
+      "region_name": "Link",
+      "super_region_name": "C",
+      "location": {
+        "x": -87.761444,
+        "y": -10004.415
+      }
+    },
+    {
+      "region_name": "Lobby",
+      "super_region_name": "C",
+      "location": {
+        "x": -1642.189,
+        "y": -5720.345
+      }
+    },
+    {
+      "region_name": "Long",
+      "super_region_name": "C",
+      "location": {
+        "x": -3356.814,
+        "y": -5990.872
+      }
+    },
+    {
+      "region_name": "Garage",
+      "super_region_name": "C",
+      "location": {
+        "x": 180.07678,
+        "y": -7999.5845
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "C",
+      "location": {
+        "x": -10.126678,
+        "y": -8993.241
+      }
+    },
+    {
+      "region_name": "Site",
+      "super_region_name": "C",
+      "location": {
+        "x": -2378.1328,
+        "y": -9010.557
+      }
+    },
+    {
+      "region_name": "Cubby",
+      "super_region_name": "C",
+      "location": {
+        "x": -2119.7693,
+        "y": -6561.603
+      }
+    },
+    {
+      "region_name": "Spawn",
+      "super_region_name": "Defender Side",
+      "location": {
+        "x": 2946.3042,
+        "y": -12714.707
+      }
+    },
+    {
+      "region_name": "Doors",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 151.11594,
+        "y": -6262.9155
+      }
+    },
+    {
+      "region_name": "Courtyard",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1822.1299,
+        "y": -6712.6875
+      }
+    },
+    {
+      "region_name": "Window",
+      "super_region_name": "Mid",
+      "location": {
+        "x": 1950.2218,
+        "y": -5567.912
+      }
+    },
+    {
+      "region_name": "Tower",
+      "super_region_name": "A",
+      "location": {
+        "x": 6721.4043,
+        "y": -10472.5205
+      }
+    }
+  ]
+}
