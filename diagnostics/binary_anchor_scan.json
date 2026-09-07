@@ -164,6 +164,11 @@
           "0x044CAA4E"
         ],
         "first_context_hex": "4424FF898424A80000004C8B1DD13616094C895C2420448B0DED361609418D911366C2488BC2448BC249C1E80F4C33C049C1E80C418D4913C1E1194C33C18BC24C33C048"
+      },
+      "seed_addend_china_13_05_candidate": {
+        "count": 0,
+        "first_offsets": [],
+        "first_context_hex": null
       }
     }
   },
@@ -228,6 +233,11 @@
           "0x01F1BA53"
         ],
         "first_context_hex": "4CA1A27DB129B2B5807DC4C950794C726474E6150BFCDEDC8D7940EFDBAC8DF21366C248D37B80EFA6D968BA9B2012865C67BC0E38E08056744B907A5982F907CACB36FA"
+      },
+      "seed_addend_china_13_05_candidate": {
+        "count": 0,
+        "first_offsets": [],
+        "first_context_hex": null
       }
     }
   }

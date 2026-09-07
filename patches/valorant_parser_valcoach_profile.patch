@@ -33,7 +33,7 @@ index 4fcbc74..294fe34 100644
          _logger = _loggerFactory.CreateLogger("CliReader");
      }
 diff --git a/src/CliReader/CliCommandFactory.cs b/src/CliReader/CliCommandFactory.cs
-index 07d7b51..081982f 100644
+index 07d7b51..efc90ff 100644
 --- a/src/CliReader/CliCommandFactory.cs
 +++ b/src/CliReader/CliCommandFactory.cs
 @@ -12,6 +12,7 @@ internal static class CliCommandFactory
@@ -65,7 +65,7 @@ index 07d7b51..081982f 100644
 +        };
 +        var diagnoseChinaAlias = new Option<bool>("--diagnose-china-alias")
 +        {
-+            Description = "Temporarily decode China 13.04/13.05 payloads with the matching Global transform.",
++            Description = "Enable experimental China transforms (13.04 Global alias; 13.05 replay-recovered candidate).",
 +        };
  
          var command = new Command("export", "Export replay events and movement as versioned NDJSON.");
@@ -514,11 +514,12 @@ index 0de12f0..116024b 100644
      {
 diff --git a/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransformChinaDiagnosticAliases.cs b/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransformChinaDiagnosticAliases.cs
 new file mode 100644
-index 0000000..adcae49
+index 0000000..3403050
 --- /dev/null
 +++ b/src/Replay.Encoding/PayloadEncryption/VersionedTransforms/ValorantSeededTransformChinaDiagnosticAliases.cs
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,177 @@
 +using Replay.Encoding.Archives;
++using static Replay.Encoding.PayloadEncryption.ValorantSeededTransformHelpers;
 +
 +namespace Replay.Encoding.PayloadEncryption.VersionedTransforms;
 +
@@ -539,7 +540,7 @@ index 0000000..adcae49
 +
 +internal sealed class ValorantSeededTransformChina13_05DiagnosticAlias : IPayloadTransform
 +{
-+    private readonly ValorantSeededTransform13_05 _inner = new();
++    private readonly ValorantSeededTransformChina13_05DiagnosticCandidate _inner = new();
 +
 +    public IReadOnlyCollection<string> SupportedReplayVersions { get; } =
 +        ["++Ares-Core+release-china-13.05"];
@@ -550,6 +551,149 @@ index 0000000..adcae49
 +
 +    public void Apply(FBitArchive input, int bitCount, uint seed, Span<byte> output) =>
 +        _inner.Apply(input, bitCount, seed, output);
++}
++
++/// <summary>
++/// Replay-only China 13.05 candidate. UInt64, PRNG initialization, and UInt32 are independently
++/// recovered. The byte implementation below is a rejected scoring probe, deliberately reachable
++/// only through the opt-in diagnostic registry; this type must not be registered for production.
++/// This class is reachable only through the opt-in diagnostic registry.
++/// </summary>
++internal sealed class ValorantSeededTransformChina13_05DiagnosticCandidate : IPayloadTransform
++{
++    private const uint SeedAddend = 0xf67761c9u;
++    private const uint InitASeedAddend = 0xc9u;
++    private const byte TailXor = 0xc9;
++
++    public IReadOnlyCollection<string> SupportedReplayVersions { get; } = [];
++
++    public int GetOutputByteCount(int bitCount) => ValorantSeededTransformHelpers.GetOutputByteCount(bitCount);
++
++    public void Apply(FBitArchive input, uint seed, Span<byte> output)
++    {
++        var bitCount = CopyInputToOutput(input, output);
++        Transform(output[..GetOutputByteCount(bitCount)], bitCount, seed);
++    }
++
++    public void Apply(FBitArchive input, int bitCount, uint seed, Span<byte> output)
++    {
++        CopyInputToOutput(input, bitCount, output);
++        Transform(output[..GetOutputByteCount(bitCount)], bitCount, seed);
++    }
++
++    private static void Transform(Span<byte> output, int bitCount, uint seed)
++    {
++        if (bitCount == 0)
++        {
++            return;
++        }
++
++        var state = seed;
++        var streamByte = (byte)seed;
++        var prngA = InitialPrngA(seed);
++        var prngB = InitialPrngB(seed);
++        var byteOffset = 0;
++        var bitsRemaining = bitCount;
++
++        unchecked
++        {
++            while (bitsRemaining > 63)
++            {
++                var value = TransformUInt64(ReadUInt64(output, byteOffset), state);
++                WriteUInt64(output, byteOffset, value);
++                AdvanceTransformState(ref state, ref prngA, ref prngB, out streamByte);
++                byteOffset += 8;
++                bitsRemaining -= 64;
++            }
++
++            while (bitsRemaining > 31)
++            {
++                var value = TransformUInt32Hypothesis(ReadUInt32(output, byteOffset), state);
++                WriteUInt32(output, byteOffset, value);
++                AdvanceTransformState(ref state, ref prngA, ref prngB, out streamByte);
++                byteOffset += 4;
++                bitsRemaining -= 32;
++            }
++
++            while (bitsRemaining > 7)
++            {
++                output[byteOffset] = TransformByteHypothesis(output[byteOffset], state);
++                AdvanceTransformState(ref state, ref prngA, ref prngB, out streamByte);
++                byteOffset++;
++                bitsRemaining -= 8;
++            }
++
++            if (bitsRemaining != 0)
++            {
++                var mask = (byte)(0xff >> (7 - ((bitCount - 1) & 7)));
++                output[byteOffset] ^= (byte)(mask & (streamByte ^ TailXor));
++            }
++        }
++    }
++
++    private static ulong TransformUInt64(ulong value, uint state)
++    {
++        unchecked
++        {
++            var ror1 = RotateRight(state, 1);
++            var ror2 = RotateRight(state, 2);
++            var ror4 = RotateRight(state, 4);
++            var ror6 = RotateRight(state, 6);
++            var ror7 = RotateRight(state, 7);
++            var ror8 = RotateRight(state, 8);
++
++            value += ror8;
++            value = RotateLeft(value, (int)(ror6 % 63) + 1);
++            value = RotateRight(value, (int)(ror7 % 63) + 1);
++            value = RotateLeft(value, (int)(ror4 % 63) + 1);
++            value = RotateRight(value, (int)(ror2 % 63) + 1);
++            return value - ror1;
++        }
++    }
++
++    private static uint TransformUInt32Hypothesis(uint value, uint state)
++    {
++        unchecked
++        {
++            var rol1 = RotateLeft(state, 1);
++            var rol2 = RotateLeft(state, 2);
++            var rol4 = RotateLeft(state, 4);
++            var rol6 = RotateLeft(state, 6);
++            var rol7 = RotateLeft(state, 7);
++            var rol8 = RotateLeft(state, 8);
++
++            value += rol8;
++            value = RotateLeft(value, (int)(rol6 % 31) + 1);
++            value = RotateRight(value, (int)(rol7 % 31) + 1);
++            value = RotateLeft(value, (int)(rol4 % 31) + 1);
++            value = RotateRight(value, (int)(rol2 % 31) + 1);
++            return value - rol1;
++        }
++    }
++
++    private static byte TransformByteHypothesis(byte value, uint state)
++    {
++        // This compact candidate explains the first 9/15/24-bit leading-byte constraints but fails
++        // later byte states and full-file health scoring. Keep it only for reproducible diagnostics.
++        unchecked
++        {
++            value += (byte)(state * 0x0cc6db61u);
++            value = RotateRight(value, (int)(state * 0x0533u % 7) + 1);
++            return (byte)(value - (byte)(state * 0x0bu));
++        }
++    }
++
++    private static ulong InitialPrngA(uint seed)
++    {
++        unchecked
++        {
++            var seedPlus = seed + SeedAddend;
++            var mixed = ((seedPlus >> 15) ^ seedPlus) >> 12 ^
++                        ((seed + InitASeedAddend) * 0x02000000u) ^
++                        seedPlus;
++            return mixed * Multiplier;
++        }
++    }
 +}
 diff --git a/src/Replay.Unreal/Bunches/ContentBlockFramer.cs b/src/Replay.Unreal/Bunches/ContentBlockFramer.cs
 index 8a9b95f..912d12d 100644
@@ -1241,10 +1385,10 @@ index aa69024..1b3e5f0 100644
          catch (UnsupportedPayloadTransformVersionException)
          {
 diff --git a/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs b/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs
-index 9df97ec..02a807c 100644
+index 9df97ec..3ffeb84 100644
 --- a/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs
 +++ b/tests/Replay.Encoding.Tests/PayloadEncryption/ValorantSeededTransformTests.cs
-@@ -188,6 +188,24 @@ public class ValorantSeededTransformTests
+@@ -188,6 +188,47 @@ public class ValorantSeededTransformTests
          Assert.Throws<UnsupportedPayloadTransformVersionException>(() => registry.GetRequired("release-12.12"));
      }
  
@@ -1264,6 +1408,29 @@ index 9df97ec..02a807c 100644
 +        var registry = PayloadTransformRegistry.CreateDefault(includeDiagnosticChinaAliases: true);
 +
 +        Assert.That(registry.GetRequired(replayVersion).GetType().Name, Is.EqualTo(expectedType));
++    }
++
++    [TestCase(32, 43u, "669B201A", "100CA261")]
++    [TestCase(64, 285u, "E0300FEB039E0CA4", "100CA461300F0804")]
++    [TestCase(128, 285u, "E0300FEB039E0CA4FE245F1C0000A09C", "100CA461300F08049340010000004039")]
++    public void DiagnosticChina13_05Candidate_ProducesRecoveredWordVectors(
++        int bitCount,
++        uint seed,
++        string ciphertextHex,
++        string plaintextHex)
++    {
++        var payload = new BitArchiveReader(Convert.FromHexString(ciphertextHex), bitCount);
++        var transform = PayloadTransformRegistry.CreateDefault(includeDiagnosticChinaAliases: true)
++            .GetRequired("++Ares-Core+release-china-13.05");
++        var output = new byte[transform.GetOutputByteCount(bitCount)];
++
++        transform.Apply(payload, bitCount, seed, output);
++
++        Assert.Multiple(() =>
++        {
++            Assert.That(Convert.ToHexString(output), Is.EqualTo(plaintextHex));
++            Assert.That(payload.AtEnd, Is.True);
++        });
 +    }
 +
      [Test]

@@ -1,0 +1,25 @@
+{
+  "status": "partial_transform_only_not_production",
+  "joint_fixture_count": 4,
+  "recovered": {
+    "uint64": "add ror8; rol ror6; ror ror7; rol ror4; ror ror2; subtract ror1",
+    "seed_addend": "0xF67761C9",
+    "init_a_seed_addend": "0xC9",
+    "state_advance": "shared xoroshiro-style helper",
+    "uint32": "add rol8; ror rol2; ror rol7; rol rol4; rol rol6; subtract rol1"
+  },
+  "known_vectors": [
+    {"bits": 32, "seed": 43, "ciphertext": "669B201A", "plaintext": "100CA261"},
+    {"bits": 64, "seed": 285, "ciphertext": "E0300FEB039E0CA4", "plaintext": "100CA461300F0804"},
+    {"bits": 128, "seed": 285, "ciphertext": "E0300FEB039E0CA4FE245F1C0000A09C", "plaintext": "100CA461300F08049340010000004039"}
+  ],
+  "byte_constraints": 87,
+  "byte_status": "unresolved",
+  "tail_xor_hypothesis": "0xC9",
+  "rejected_byte_candidate": {
+    "formula": "add low8(state*0x61); ror(state*0x533 mod 7 + 1); subtract low8(state*0x0B)",
+    "expected_24_bit_plaintext": "680900",
+    "actual_24_bit_plaintext": "68F870"
+  },
+  "production_registry_enabled": false
+}

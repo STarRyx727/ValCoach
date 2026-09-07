@@ -1,6 +1,6 @@
 # VALORANT China replay payload transform diagnosis
 
-Date: 2026-09-07
+Date: 2026-09-08
 
 ## Result
 
@@ -14,9 +14,12 @@ China 13.05 `TransformUInt64` differs before PRNG state advancement. The first 6
 `state = seed`, so this conclusion is independent of `SeedAddend`, `InitialPrngA`, and later PRNG
 state transitions. Constant-only brute force must not be resumed.
 
-The real China 13.05 and China 13.04 transforms are **not recovered yet**. The temporary alias is
-opt-in and is rejected by the default registry. ValCoach therefore continues to report China
-gameplay payloads as unsupported instead of returning corrupt coaching data.
+Replay-only solving has now recovered and cross-validated the China 13.05 `TransformUInt64`, PRNG
+initialization/state advance, and `TransformUInt32` stages. The byte transform remains unsolved;
+the tail constant `0xC9` is a strong but not independently complete hypothesis. Therefore the full
+China 13.05 transform, and all of China 13.04, are **not recovered yet**. The partial candidate is
+opt-in and rejected by the default registry. ValCoach continues to report China gameplay payloads
+as unsupported instead of returning corrupt coaching data.
 
 ## Fixtures and metadata
 
@@ -110,6 +113,72 @@ Global consumes all 287 bits and decodes two fields. The China alias throws afte
 `Packed integer did not terminate within five bytes`. Because the first uint64 is transformed before
 `AdvanceTransformState`, later PRNG constants cannot repair this block.
 
+## Replay-only recovery of China 13.05
+
+Four China 13.05 fixtures were solved jointly; no result below was selected from a single replay.
+The first-word meet-in-the-middle search and grammar score recovered this transform:
+
+```text
+value += ROR32(state, 8)
+value  = ROL64(value, ROR32(state, 6) % 63 + 1)
+value  = ROR64(value, ROR32(state, 7) % 63 + 1)
+value  = ROL64(value, ROR32(state, 4) % 63 + 1)
+value  = ROR64(value, ROR32(state, 2) % 63 + 1)
+value -= ROR32(state, 1)
+```
+
+It maps the China first ciphertext word `E0300FEB039E0CA4`, seed 285, to
+`100CA461300F0804`. Across the four bounded sample sets, the recovered transform gives valid first
+handles/lengths for every scored row and the observed maximum handle is 59, matching the healthy
+Global distribution.
+
+For the second word of the seed-285 sample, an exhaustive 32-bit state search against a 40-bit
+grammar prefix yielded exactly one state, `0x05905425`, and decoded
+`FE245F1C0000A09C` to `9340010000004039`. Cross-fixture scoring then uniquely selected the shared
+state generator parameters:
+
+```text
+SeedAddend      = 0xF67761C9
+InitASeedAddend = 0xC9
+Initial A uses  seed + 0xC9
+state advance   = the existing xoroshiro-style shared helper
+```
+
+The recovered 32-bit stage is:
+
+```text
+value += ROL32(state, 8)
+value  = ROR32(value, ROL32(state, 2) % 31 + 1)
+value  = ROR32(value, ROL32(state, 7) % 31 + 1)
+value  = ROL32(value, ROL32(state, 4) % 31 + 1)
+value  = ROL32(value, ROL32(state, 6) % 31 + 1)
+value -= ROL32(state, 1)
+```
+
+Independent vectors include `669B201A -> 100CA261` at seed 43 and the 64/128-bit vectors now
+covered by diagnostic unit tests. Rotation order is algebraically interchangeable where adjacent
+rotations have no intervening arithmetic.
+
+### Byte-stage rejection evidence
+
+The four fixtures provide 83 distinct 9-bit empty-RepLayout samples whose plaintext first byte is
+zero, plus the shared control vectors `FA -> 40` (seed 13) and `C7 17 40 -> 68 09 00` (seed 26
+with two recovered PRNG states). In total, 87 byte constraints were used.
+
+The solver rejected:
+
+- every complete historical byte transform from 12.10 through 13.05;
+- historical templates with substituted arithmetic multipliers and state-rotation terms;
+- simple arithmetic/rotation normal forms;
+- a bidirectional program search through six reversible primitives;
+- the compact `add 0x61 / rotate / subtract 0x0B` candidate: it decodes the 24-bit control as
+  `68 F8 70`, not `68 09 00`.
+
+Full-file score also rejects every partial byte hypothesis. Depending on the rejected candidate,
+the Ascent replay reports 291,511–354,408 malformed payloads and implausible 684,841–1,341,956
+movement-shaped rows, compared with zero malformed payloads and 165,047 movement rows in the
+Global control. These are parser false positives, not gameplay recovery.
+
 ## Historical transform and DSL search
 
 Every complete historical Global first-block transform (12.10, 12.11, 13.00, 13.01, 13.02,
@@ -145,14 +214,18 @@ The Global executable contains valid 13.05 initialization code at raw offset `0x
 - `movabs rdx,0x2545f4914f6cdd1d`
 
 The Tencent executable uses protected `.std` sections. Its static image contains zero copies of the
-64-bit PRNG multiplier. Its single `0x48C26613` byte sequence is surrounded by high-entropy bytes
-that do not disassemble as a function. The China transform is therefore not available in plaintext
-for a static BinDiff/Diaphora comparison. Full anchor evidence and hashes are in
+64-bit PRNG multiplier and also zero copies of the independently recovered `0xF67761C9` addend. Its
+single `0x48C26613` byte sequence is surrounded by high-entropy bytes that do not disassemble as a
+function. The China transform is therefore not available in plaintext for a static
+BinDiff/Diaphora comparison. Full anchor evidence and hashes are in
 `diagnostics/binary_anchor_scan.json`.
 
-Reading the unpacked China function requires an explicitly authorized runtime-memory dump while the
-China client is running. That operation was not performed because it interacts with a protected game
-process and anti-cheat environment.
+After explicit authorization, the read-only runtime scanner was tested against a running Tencent
+China process (PID 211232) and later against a running Riot Global process (PID 216764). Windows
+denied `OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ)` with error 5 in both cases,
+including the approved elevated attempt. No injection, handle hijacking, driver, protection change,
+or anti-cheat bypass was attempted. The installed Tencent `VALORANT-Win64-ShippingBase.dll` is also
+protected (`.tvm0`) and contains no usable transform anchors.
 
 ## Implemented diagnostic tooling
 
@@ -166,24 +239,28 @@ The reproducible parser patch now provides:
 - a `transform-first-block` command covering all historical transforms;
 - tests proving China aliases are unavailable by default and available only in diagnostic mode.
 
-The Rust probe now preserves source filenames, recognizes China 13.04, scans executable anchors, and
-searches historical first-block DSL skeletons. `scripts/collect_china_diagnostics.ps1` reproduces the
+The Rust probe now preserves source filenames, recognizes China 13.04, scans static/runtime anchors,
+and includes reproducible UInt64, PRNG, state, UInt32, byte-template, and bidirectional byte-program
+solvers. The parser diagnostic candidate has unit vectors for the recovered 32/64/128-bit stages but
+is never installed by the default registry. `scripts/collect_china_diagnostics.ps1` reproduces the
 summary JSON files from parser manifests and JSONL samples.
 
 ## Remaining work and acceptance status
 
-China 13.05 acceptance is not met: no authentic China transform exists yet, movement is zero, and
-the alias malformed rate is far above Global. Consequently China 13.04 must not be promoted either.
-No `ValorantSeededTransformChina13_05` or `ValorantSeededTransformChina13_04` production class was
-invented, and no known-vector test was fabricated.
+China 13.05 acceptance is not met: three stages are recovered, but the byte stage is not, and every
+partial full-file run has a malformed rate far above Global. Consequently full China 13.04 transform
+recovery must not proceed to promotion under the task's gating rule; its baseline and Global-alias
+diagnostics have already been completed. No `ValorantSeededTransformChina13_05` or
+`ValorantSeededTransformChina13_04` production class was invented, and no unsupported vector was
+presented as final.
 
 The shortest remaining path is:
 
-1. Explicitly authorize a read-only runtime dump of the unpacked Tencent module while the China
-   client is running.
-2. Locate the Global-analog transform caller/function in that dump and transcribe UInt64, PRNG,
-   UInt32, byte, and tail stages.
-3. Add isolated China 13.05 known vectors for 0/1/7/8/31/32/63/64/65/>256 bits.
+1. Obtain a legally readable unpacked Tencent module/function (the authorized process-read route is
+   blocked by Windows/anti-cheat access control), or extend replay-only synthesis with the new byte
+   template used by China.
+2. Transcribe and validate the remaining byte stage and independently prove the tail bits.
+3. Add final China 13.05 vectors for 0/1/7/8/31/32/63/64/65/>256 bits.
 4. Re-run all four China 13.05 fixtures and require nonzero, finite movement plus credible gunplay
    and RPC counts with a malformed rate near Global.
 5. Repeat for China 13.04, then investigate descriptor overlays only if the transform is healthy.

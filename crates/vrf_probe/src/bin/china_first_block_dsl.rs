@@ -179,6 +179,7 @@ fn apply(
     value
 }
 
+#[allow(clippy::too_many_arguments)]
 fn visit_assignments(
     skeleton: &Skeleton,
     ciphertext: u64,

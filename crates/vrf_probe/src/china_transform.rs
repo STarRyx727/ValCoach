@@ -1,7 +1,8 @@
-//! China 13.05 transform constant brute-force search.
+//! Legacy Global-13.05-skeleton scorer used by the China replay experiments.
 //!
-//! The transform algorithm is shared between Global and China 13.05.
-//! Only 3 constants differ: SeedAddend, InitASeedAddend, TailXor.
+//! Replay evidence has disproved the original hypothesis that China 13.05 differs only in three
+//! constants. This module is retained for reproducibility and negative-control tests; it is not a
+//! China production transform.
 //!
 //! Strategy: The first content block of each ReplayData chunk uses a known seed
 //! (derived from the replay's NetGUID cache). The first 8 bytes after transform

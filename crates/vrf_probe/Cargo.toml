@@ -20,3 +20,43 @@ path = "src/bin/binary_anchor_scan.rs"
 [[bin]]
 name = "china_first_block_dsl"
 path = "src/bin/china_first_block_dsl.rs"
+
+[[bin]]
+name = "runtime_anchor_scan"
+path = "src/bin/runtime_anchor_scan.rs"
+
+[[bin]]
+name = "china_word64_mitm"
+path = "src/bin/china_word64_mitm.rs"
+
+[[bin]]
+name = "china_word64_score"
+path = "src/bin/china_word64_score.rs"
+
+[[bin]]
+name = "china_state2_search"
+path = "src/bin/china_state2_search.rs"
+
+[[bin]]
+name = "china_prng_search"
+path = "src/bin/china_prng_search.rs"
+
+[[bin]]
+name = "china_pair_mine"
+path = "src/bin/china_pair_mine.rs"
+
+[[bin]]
+name = "china_prng_score"
+path = "src/bin/china_prng_score.rs"
+
+[[bin]]
+name = "china_word32_search"
+path = "src/bin/china_word32_search.rs"
+
+[[bin]]
+name = "china_byte_search"
+path = "src/bin/china_byte_search.rs"
+
+[[bin]]
+name = "china_byte_vector_search"
+path = "src/bin/china_byte_vector_search.rs"

@@ -34,6 +34,10 @@ const ANCHORS: &[(&str, &[u8])] = &[
     ("seed_addend_13_02", &0x9e81_a37cu32.to_le_bytes()),
     ("seed_addend_13_04", &0xb6e1_3c58u32.to_le_bytes()),
     ("seed_addend_13_05", &0x48c2_6613u32.to_le_bytes()),
+    (
+        "seed_addend_china_13_05_candidate",
+        &0xf677_61c9u32.to_le_bytes(),
+    ),
     ("byte_mix_1b0829", &0x001b_0829u32.to_le_bytes()),
 ];
 
