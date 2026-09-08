@@ -99,7 +99,13 @@ p { color: #b7c0cb; line-height: 1.7; }
 .target-glyph::after { height: 1px; width: 120%; top: 50%; left: -10%; }
 .review-heading { padding-bottom: 22px; border-bottom: 1px solid var(--line); }
 .review-heading h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.8rem); }
-.ready-badge { color: #bdebd7; border-color: #285e49; }
+.ready-badge { gap: 7px; }
+.ready-badge i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 9px currentColor; }
+.ready-badge.complete { color: #bdebd7; border-color: #285e49; }
+.ready-badge.basic { color: #f5d78e; border-color: #725d2f; background: rgba(242,198,109,.07); }
+.capability-notice { margin: 18px 0 0; padding: 12px 14px; display: flex; align-items: baseline; gap: 10px; color: #dbc991; background: rgba(242,198,109,.08); border-left: 3px solid var(--amber); }
+.capability-notice strong { flex: 0 0 auto; color: #f5d78e; }
+.capability-notice span { color: #c7b985; }
 
 .job-progress { margin-bottom: 22px; padding: 14px 16px; color: #b8c4cf; background: #111a24; border-left: 3px solid var(--blue); }
 .job-progress.failed, .job-progress.cancelled { border-color: var(--red); }
@@ -109,6 +115,12 @@ p { color: #b7c0cb; line-height: 1.7; }
 .pulse { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--blue); animation: pulse 1.3s infinite; }
 .progress-track { height: 2px; margin-top: 11px; overflow: hidden; background: #2a3440; }
 .progress-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #8de2ff); transition: width .35s ease; }
+.parse-summary { margin-top: 11px; display: flex; align-items: center; flex-wrap: wrap; gap: 7px 14px; }
+.parse-summary > strong { margin-right: 4px; color: #edf2f6; }
+.parse-summary > span { color: #aebac5; font-size: .78rem; }
+.parse-summary .supported { color: #91e0ba; }
+.parse-summary .partial { color: #f5d78e; }
+.parse-summary .unsupported { color: #8994a0; }
 @keyframes pulse { 50% { opacity: .25; transform: scale(.75); } }
 
 .roster-section, .coach-section { padding-top: 28px; }
@@ -140,6 +152,9 @@ p { color: #b7c0cb; line-height: 1.7; }
 .coach-gate > span { color: var(--red); font-size: 1.5rem; }
 .coach-form, .stack-form, .settings-form { display: grid; gap: 13px; }
 .coach-form { margin-top: 18px; }
+.question-suggestions { display: flex; flex-wrap: wrap; gap: 7px; }
+.question-suggestions button { padding: 7px 10px; color: #c2ccd6; background: #151f2a; border: 1px solid #354150; font-size: .78rem; }
+.question-suggestions button:hover { color: white; border-color: var(--red); background: rgba(255,70,85,.1); }
 textarea, input, select { width: 100%; color: #eef2f6; background: #0b1119; border: 1px solid #3b4654; border-radius: 0; padding: 11px 12px; }
 textarea { min-height: 104px; resize: vertical; }
 label { display: grid; gap: 7px; color: #b9c3cd; font-size: .86rem; }
@@ -149,6 +164,17 @@ label { display: grid; gap: 7px; color: #b9c3cd; font-size: .86rem; }
 .message header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .message header small { color: var(--muted); }
 .message p { margin: 0; white-space: pre-wrap; }
+.evidence-panel { margin-top: 13px; padding-top: 11px; border-top: 1px solid #293441; }
+.evidence-panel summary { color: #aeb9c4; cursor: pointer; font-size: .8rem; }
+.evidence-panel section { margin-top: 12px; }
+.evidence-panel h4 { margin: 0 0 8px; color: #dce4eb; font-size: .82rem; }
+.evidence-panel ul { margin: 0; padding: 0; list-style: none; }
+.evidence-panel section li { padding: 8px 10px; display: flex; justify-content: space-between; gap: 12px; color: #d1d9e1; background: #0c141d; border-left: 2px solid var(--blue); }
+.evidence-panel section li + li { margin-top: 5px; }
+.evidence-panel section small { flex: 0 0 auto; color: #748291; font-size: .68rem; }
+.evidence-panel aside { margin-top: 10px; padding: 10px 12px; color: #d8c58c; background: rgba(242,198,109,.08); border-left: 2px solid var(--amber); }
+.evidence-panel aside strong { display: block; margin-bottom: 5px; color: #f5d78e; font-size: .78rem; }
+.evidence-panel aside li { color: #c7b985; font-size: .76rem; line-height: 1.55; }
 .message .markdown-body { line-height: 1.65; }
 .message .markdown-body p { margin: 0 0 10px; }
 .message .markdown-body p:last-child { margin-bottom: 0; }

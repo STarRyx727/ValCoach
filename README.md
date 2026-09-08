@@ -15,7 +15,7 @@ ValCoach 是一个本地运行的 VALORANT 回放分析工具。用户上传 `.v
 | 核心逻辑 | Rust 2024 edition, tokio async runtime |
 | HTTP 服务 | axum 0.8, tower-sessions |
 | 数据库 | SQLite (sqlx, WAL 模式, 批量事务写入) |
-| 前端 | React 18 + TypeScript + Vite |
+| 前端 | React 19.2.8 + TypeScript 7.0.2 + Vite 8.2.2 |
 | 回放解析器 | C# / .NET 10 — `michel-giehl/ValorantReplayParser` (通过 CLI + NDJSON 接入) |
 | 容器探针 | Rust — `vrf-container` from `yakisoba0728/vrfkit` |
 | LLM 接入 | OpenAI Responses / Claude Messages / DeepSeek 与主流 OpenAI 兼容 API |
@@ -111,7 +111,7 @@ LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
 
 - Rust 1.97+ (rustup)
 - .NET 10 SDK
-- Node.js 18+
+- Node.js 22.12+
 
 ### 安装与运行
 
@@ -170,8 +170,16 @@ $env:VALCOACH_GIT_PROXY = 'http://127.0.0.1:7890'
 ```powershell
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cd web; npm run build
+cd web; npm test; npm run build
 ```
+
+发布 Demo 前，在保留本地 `Demos-Global`、`Demos-China` 原始录像的环境执行完整人工检查：
+
+```powershell
+.\scripts\release_check.ps1
+```
+
+脚本依次运行完整国际服 fixture、国服 fixture、4 个前端关键流程 smoke test 和前端生产构建；大型录像仍不会进入普通 CI 或 Git。
 
 ## 游戏内容快照
 
@@ -198,7 +206,7 @@ crates/
 apps/
 └─ server/          # axum HTTP 服务（auth/jobs/matches/agent）
 web/                # React/Vite 前端
-scripts/            # 一键启动、固定版本解析器安装与游戏内容快照同步
+scripts/            # 一键启动、解析器安装、发布检查与游戏内容快照同步
 docs/               # 长期技术文档（Provider、Bundle 协议、评测与架构决策）
 ```
 

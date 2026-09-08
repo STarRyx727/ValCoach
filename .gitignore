@@ -23,6 +23,7 @@ target/
 # Frontend dependencies and build output
 node_modules/
 dist/
+.npm-cache/
 *.tsbuildinfo
 web/vite.config.js
 web/vite.config.d.ts

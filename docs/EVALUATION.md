@@ -30,6 +30,10 @@ shapes, token extraction, optional cost arithmetic, a loopback OpenAI request, g
 conversation persistence and user usage totals. No real provider call or API token is needed for
 the test suite.
 
+The web smoke suite covers the four user-facing gates most likely to regress: model configuration,
+player binding before coaching, partial replay capability labelling, and model-settings submission.
+Run it with `cd web; npm test`.
+
 For model-quality evaluation, compare a generic prompt against ValCoach grounded answers on the
 same player questions. Score factual claims for valid Match/Timestamp evidence, clearly separated
 observations versus recommendations, and an explicit limitation whenever the required capability
