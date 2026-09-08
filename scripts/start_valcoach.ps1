@@ -12,6 +12,7 @@ $parserMarker = Join-Path $parserRoot 'VALCOACH_TESTED_COMMIT.txt'
 $pinnedParserCommit = 'b51d67423b7b4952d59051cf91e55efa1c42da05'
 $webRoot = Join-Path $projectRoot 'web'
 $backend = $null
+$backendExecutable = Join-Path $projectRoot 'target\debug\valcoach-server.exe'
 
 function Test-LocalTcpPort {
     param([string]$HostName, [int]$Port)
@@ -23,6 +24,31 @@ function Test-LocalTcpPort {
         return $false
     } finally {
         $client.Dispose()
+    }
+}
+
+function Stop-StaleProjectBackend {
+    # Closing a console forcibly can prevent PowerShell's finally block from running,
+    # leaving the hidden backend alive. Only stop executables whose resolved path is
+    # exactly this checkout's build output; never terminate an unrelated port owner.
+    $staleProcesses = Get-Process -Name 'valcoach-server' -ErrorAction SilentlyContinue
+    foreach ($process in $staleProcesses) {
+        try {
+            $processPath = [System.IO.Path]::GetFullPath($process.Path)
+        } catch {
+            continue
+        }
+        if (-not [string]::Equals(
+            $processPath,
+            $backendExecutable,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )) {
+            continue
+        }
+
+        Write-Host "Stopping stale ValCoach backend (PID $($process.Id))..."
+        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+        Wait-Process -Id $process.Id -Timeout 5 -ErrorAction SilentlyContinue
     }
 }
 
@@ -48,6 +74,7 @@ if (-not (Test-ParserReady)) {
     throw "Replay parser was not found at $parserProject. Run scripts\setup_parser.ps1."
 }
 
+Stop-StaleProjectBackend
 foreach ($port in @(3000, 5173)) {
     if (Test-LocalTcpPort -HostName '127.0.0.1' -Port $port) {
         throw "Port $port is already in use. Close the previous ValCoach instance, then run start.cmd again."
@@ -75,7 +102,6 @@ try {
         Pop-Location
     }
 
-    $backendExecutable = Join-Path $projectRoot 'target\debug\valcoach-server.exe'
     if (-not (Test-Path -LiteralPath $backendExecutable)) {
         throw "ValCoach backend executable was not found: $backendExecutable"
     }
