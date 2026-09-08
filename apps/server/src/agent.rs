@@ -24,8 +24,12 @@ use crate::{
 const MAX_QUESTION_BYTES: usize = 4_000;
 const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 4_096;
 const MAX_MAX_OUTPUT_TOKENS: u32 = 393_216;
+const MAX_CONTEXT_BYTES: usize = 96_000;
+const MAX_HISTORY_MESSAGES: usize = 6;
+const MAX_HISTORY_CHARS_PER_MESSAGE: usize = 1_600;
 const SYSTEM_PROMPT: &str = r#"You are ValCoach, an evidence-grounded VALORANT replay coach.
 Use only facts in <replay_context>; never invent missing replay facts, player identity, units, rounds, kills, or causes.
+Read retrieval_mode first. When it is personal_history_only, do not analyze or imply facts from the current match. Use only personal_issues and recent_coaching_exchanges. If structured issues are empty but prior exchanges exist, summarize those prior coaching findings and say they are not yet confirmed as recurring issues.
 Check the capability map before making each factual claim. If a capability is partial or unsupported, state the limitation.
 Separate observed facts from coaching recommendations. Cite applicable evidence using its exact match_id, player_id, human_time, and evidence_type.
 Always use human_time (format "R8 00:26.1") when referring to timestamps. Never use raw milliseconds.
@@ -36,9 +40,9 @@ Always use official VALORANT agent display names, never internal codenames.
 The "agent" field can contain replay codenames. Translate them to official English display names. In particular Pine is Veto, Nox is Vyse, Iris is Miks, Cashew is Tejo, Terra is Waylay, and AggroBot is Gekko.
 Similarly, map names must use display names: Bonsai->Split, Duality->Bind, Triad->Haven, Juliett->Sunset, Jam->Lotus, Pitt->Pearl, Canyon->Fracture, Foxtrot->Breeze, Port->Icebox, Infinity->Abyss, Rook->Corrode, Plummet->Summit.
 Weapon names in shot events may be null or use internal names; use common names (e.g. "Classic", "Vandal", "Phantom") when available.
-If personal_issues are present in the context, relate current observations to known recurring problems and mention trends.
+If personal_issues are present in the context, relate current observations to known recurring problems and mention trends. An occurrence count of 1 is an initial observation, not yet a recurring pattern.
 Treat player_profile only as user-provided preferences and training background, never as replay evidence. Tailor explanations and drills to the player's rank, main role, agents, and training goals when present. Never infer a missing profile field.
-When you identify a recurring tactical issue, add a <coaching_issue> block at the end with: issue_key, category, title, description, map, side, area, severity (0-1), confidence (0-1).
+For match_analysis mode, whenever the answer identifies an evidence-backed weakness or actionable tactical problem, append one machine-readable <coaching_issues> JSON array after the answer. Each object must contain issue_key, category, title, description, map, side, area, severity (0-1), and confidence (0-1). Use a short stable snake_case issue_key so the same problem can be matched in later games. Emit [] if no problem was identified. Do not wrap this JSON in markdown fences. Never emit this block in personal_history_only mode.
 Answer in the language used by the player. Be concise and actionable. Use markdown formatting (headers, bold, lists) for readability."#;
 
 #[derive(Clone)]
@@ -186,107 +190,131 @@ impl AgentService {
             .find_match_for_user(user_id, match_id)
             .await?
             .ok_or(AgentError::MatchNotFound)?;
+        let retrieval_mode = question_retrieval_mode(question);
         let selected_player = self
             .database
             .find_bound_player_for_match(user_id, match_id)
             .await?;
-        let metrics = self
-            .database
-            .list_match_metrics_for_user(user_id, match_id)
-            .await?;
-
         let mut evidence = Vec::new();
         let mut limitations = Vec::new();
-        let selected_metrics: Vec<Value> = if let Some(player_id) = selected_player.as_deref() {
-            metrics
-                .into_iter()
-                .filter_map(|metric| {
-                    let value: Value = serde_json::from_str(&metric.value_json).ok()?;
-                    let applies = evidence_values(&value).iter().any(|item| {
-                        item.get("player_id").and_then(Value::as_str) == Some(player_id)
-                    });
-                    if !applies {
-                        return None;
-                    }
-                    evidence.extend(evidence_values(&value));
-                    limitations.extend(limitation_values(&value));
-                    Some(json!({ "metric_name": metric.metric_name, "value": value }))
-                })
-                .collect()
-        } else {
-            limitations.push(
-                "No replay player is bound to this account; personalized movement evidence is unavailable."
-                    .to_owned(),
-            );
-            Vec::new()
-        };
         let scope = question_scope(question);
-        let personal_issues = self
-            .database
-            .list_player_issues(user_id)
-            .await
-            .unwrap_or_default();
+        let personal_issues = self.database.list_player_issues(user_id).await?;
         let player_profile = self.database.user_profile(user_id).await?;
-        let semantic_context = if let Some(player_id) = selected_player.as_deref() {
-            let semantic = self
+        let previous = self
+            .database
+            .list_agent_messages_for_match(user_id, match_id)
+            .await?;
+
+        let (selected_metrics, semantic_context) = if retrieval_mode == RetrievalMode::MatchAnalysis
+        {
+            let metrics = self
                 .database
-                .build_semantic_coaching_context(
-                    user_id,
-                    match_id,
-                    player_id,
-                    scope.round_no,
-                    scope.area.as_deref(),
-                    scope.side.as_deref(),
-                )
+                .list_match_metrics_for_user(user_id, match_id)
                 .await?;
-            evidence.extend(semantic.evidence);
-            limitations.extend(semantic.limitations);
-            Some(semantic.context)
+            let selected_metrics: Vec<Value> = if let Some(player_id) = selected_player.as_deref() {
+                metrics
+                    .into_iter()
+                    .filter_map(|metric| {
+                        let value: Value = serde_json::from_str(&metric.value_json).ok()?;
+                        let applies = evidence_values(&value).iter().any(|item| {
+                            item.get("player_id").and_then(Value::as_str) == Some(player_id)
+                        });
+                        if !applies {
+                            return None;
+                        }
+                        evidence.extend(evidence_values(&value));
+                        limitations.extend(limitation_values(&value));
+                        Some(json!({ "metric_name": metric.metric_name, "value": value }))
+                    })
+                    .collect()
+            } else {
+                limitations.push(
+                        "No replay player is bound to this account; personalized movement evidence is unavailable."
+                            .to_owned(),
+                    );
+                Vec::new()
+            };
+            let semantic_context = if let Some(player_id) = selected_player.as_deref() {
+                let semantic = self
+                    .database
+                    .build_semantic_coaching_context(
+                        user_id,
+                        match_id,
+                        player_id,
+                        scope.round_no,
+                        scope.area.as_deref(),
+                        scope.side.as_deref(),
+                    )
+                    .await?;
+                evidence.extend(semantic.evidence);
+                limitations.extend(semantic.limitations);
+                Some(semantic.context)
+            } else {
+                None
+            };
+            (selected_metrics, semantic_context)
         } else {
-            None
+            (Vec::new(), None)
         };
         limitations.sort();
         limitations.dedup();
         if !evidence.is_empty() {
             evidence.sort_by_key(|v| v.to_string());
             evidence.dedup();
+            evidence.truncate(96);
         }
-        let context = json!({
-            "match_id": replay.id,
-            "metadata": {
-                "replay_id": replay.metadata.replay_id,
-                "branch": replay.metadata.branch,
-                "map": replay.metadata.map.as_deref().map(valcoach_domain::map_display_name),
-                "map_raw": replay.metadata.map,
-                "duration_ms": replay.metadata.duration_ms,
-            },
-            "capabilities": replay.capabilities,
-            "summary": replay.summary,
-            "selected_player_id": selected_player,
-            "deterministic_metrics": selected_metrics,
-            "semantic_replay": semantic_context,
-            "personal_issues": personal_issues,
-            "player_profile": player_profile,
-            "limitations": limitations,
-        });
-        let previous = self
-            .database
-            .list_agent_messages_for_match(user_id, match_id)
-            .await?;
-        let history_start = previous.len().saturating_sub(12);
-        let conversation_history: Vec<Value> = previous[history_start..]
-            .iter()
-            .map(|message| {
-                json!({
-                    "role": message.role,
-                    "content": message.content.chars().take(4_000).collect::<String>(),
-                })
+        let context = if retrieval_mode == RetrievalMode::PersonalHistoryOnly {
+            let recent = self
+                .database
+                .recent_coaching_exchanges_for_user(user_id, 8)
+                .await?;
+            json!({
+                "retrieval_mode": retrieval_mode.as_str(),
+                "personal_issues": personal_issues,
+                "recent_coaching_exchanges": recent,
+                "player_profile": player_profile,
+                "current_match_loaded": false,
             })
-            .collect();
+        } else {
+            json!({
+                "retrieval_mode": retrieval_mode.as_str(),
+                "match_id": replay.id,
+                "metadata": {
+                    "replay_id": replay.metadata.replay_id,
+                    "branch": replay.metadata.branch,
+                    "map": replay.metadata.map.as_deref().map(valcoach_domain::map_display_name),
+                    "map_raw": replay.metadata.map,
+                    "duration_ms": replay.metadata.duration_ms,
+                },
+                "capabilities": replay.capabilities,
+                "summary": replay.summary,
+                "selected_player_id": selected_player,
+                "deterministic_metrics": selected_metrics,
+                "semantic_replay": semantic_context,
+                "personal_issues": personal_issues,
+                "player_profile": player_profile,
+                "limitations": limitations,
+            })
+        };
+        let conversation_history = if retrieval_mode == RetrievalMode::PersonalHistoryOnly {
+            Vec::new()
+        } else {
+            let history_start = previous.len().saturating_sub(MAX_HISTORY_MESSAGES);
+            previous[history_start..]
+                .iter()
+                .map(|message| {
+                    json!({
+                        "role": message.role,
+                        "content": message.content.chars().take(MAX_HISTORY_CHARS_PER_MESSAGE).collect::<String>(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let serialized_context = serialize_context_with_budget(context)?;
         let input = format!(
             "<replay_context>\n{}\n</replay_context>\n<conversation_history>\n{}\n</conversation_history>\n<player_question>\n{}\n</player_question>",
-            serde_json::to_string_pretty(&context)?,
-            serde_json::to_string_pretty(&conversation_history)?,
+            serialized_context,
+            serde_json::to_string(&conversation_history)?,
             question
         );
         let request_key = (user_id.to_owned(), match_id.to_owned());
@@ -307,25 +335,34 @@ impl AgentService {
         let reply = reply_result?;
         let session_id = Uuid::new_v4().to_string();
         let (clean_answer, extracted_issues) = extract_coaching_issues(&reply.text);
-        for issue in &extracted_issues {
-            let _ = self
-                .database
-                .upsert_player_issue(
-                    user_id,
-                    &issue.issue_key,
-                    &issue.category,
-                    &issue.title,
-                    issue.description.as_deref(),
-                    issue.map.as_deref(),
-                    issue.side.as_deref(),
-                    issue.area.as_deref(),
-                    issue.severity,
-                    issue.confidence,
-                    Some(match_id),
-                    None,
-                    None,
-                )
-                .await;
+        if retrieval_mode == RetrievalMode::MatchAnalysis {
+            for issue in &extracted_issues {
+                if let Err(error) = self
+                    .database
+                    .upsert_player_issue(
+                        user_id,
+                        &issue.issue_key,
+                        &issue.category,
+                        &issue.title,
+                        issue.description.as_deref(),
+                        issue.map.as_deref(),
+                        issue.side.as_deref(),
+                        issue.area.as_deref(),
+                        issue.severity,
+                        issue.confidence,
+                        Some(match_id),
+                        None,
+                        None,
+                    )
+                    .await
+                {
+                    tracing::error!(%error, issue_key = %issue.issue_key, "failed to save coaching issue");
+                    limitations.push(
+                        "A coaching issue was identified but could not be added to personal history."
+                            .to_owned(),
+                    );
+                }
+            }
         }
         self.database
             .insert_agent_exchange(
@@ -365,6 +402,124 @@ impl AgentService {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetrievalMode {
+    MatchAnalysis,
+    PersonalHistoryOnly,
+}
+
+impl RetrievalMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::MatchAnalysis => "match_analysis",
+            Self::PersonalHistoryOnly => "personal_history_only",
+        }
+    }
+}
+
+fn question_retrieval_mode(question: &str) -> RetrievalMode {
+    let lower = question.to_ascii_lowercase();
+    let explicitly_excludes_match = [
+        "不看这局",
+        "不看本局",
+        "忽略这局",
+        "忽略本局",
+        "只分析历史",
+        "只看历史",
+        "不要分析这局",
+        "不要看这局",
+        "ignore this match",
+        "without this match",
+        "history only",
+        "historical issues only",
+    ]
+    .iter()
+    .any(|term| question.contains(term) || lower.contains(term));
+    let asks_for_history = [
+        "历史问题",
+        "长期问题",
+        "过往问题",
+        "以前的问题",
+        "常见问题",
+        "历史记录",
+        "historical issue",
+        "past issue",
+        "recurring issue",
+        "coaching history",
+    ]
+    .iter()
+    .any(|term| question.contains(term) || lower.contains(term));
+    let explicitly_compares_current_match = [
+        "这局相比",
+        "本局相比",
+        "结合这局",
+        "结合本局",
+        "compare this match",
+        "current match compared",
+    ]
+    .iter()
+    .any(|term| question.contains(term) || lower.contains(term));
+    if explicitly_excludes_match || (asks_for_history && !explicitly_compares_current_match) {
+        RetrievalMode::PersonalHistoryOnly
+    } else {
+        RetrievalMode::MatchAnalysis
+    }
+}
+
+fn serialize_context_with_budget(mut context: Value) -> Result<String, serde_json::Error> {
+    loop {
+        let serialized = serde_json::to_string(&context)?;
+        if serialized.len() <= MAX_CONTEXT_BYTES {
+            return Ok(serialized);
+        }
+
+        if let Some(rounds) = context
+            .pointer_mut("/semantic_replay/relevant_rounds")
+            .and_then(Value::as_array_mut)
+            && rounds.len() > 1
+        {
+            rounds.pop();
+            continue;
+        }
+        if let Some(exchanges) = context
+            .get_mut("recent_coaching_exchanges")
+            .and_then(Value::as_array_mut)
+            && exchanges.len() > 1
+        {
+            exchanges.pop();
+            continue;
+        }
+        if let Some(metrics) = context
+            .get_mut("deterministic_metrics")
+            .and_then(Value::as_array_mut)
+            && !metrics.is_empty()
+        {
+            metrics.pop();
+            continue;
+        }
+        if let Some(semantic) = context.get_mut("semantic_replay")
+            && !semantic.is_null()
+        {
+            let summary = json!({
+                "question_scope": semantic.get("question_scope"),
+                "player": semantic.get("player"),
+                "players": semantic.get("players"),
+                "all_rounds": semantic.get("all_rounds"),
+                "context_truncated": true,
+            });
+            *semantic = summary;
+            continue;
+        }
+
+        return serde_json::to_string(&json!({
+            "retrieval_mode": context.get("retrieval_mode"),
+            "personal_issues": context.get("personal_issues"),
+            "player_profile": context.get("player_profile"),
+            "context_truncated": true,
+        }));
+    }
+}
+
 #[derive(Debug, Default)]
 struct QuestionScope {
     round_no: Option<u32>,
@@ -380,32 +535,81 @@ struct CoachingIssue {
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
+    #[serde(alias = "map_name")]
     map: Option<String>,
     #[serde(default)]
     side: Option<String>,
     #[serde(default)]
     area: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_issue_score")]
     severity: f64,
-    #[serde(default)]
+    #[serde(default = "default_issue_score")]
     confidence: f64,
 }
 
 fn extract_coaching_issues(text: &str) -> (String, Vec<CoachingIssue>) {
     let mut issues = Vec::new();
     let mut clean = text.to_owned();
-    while let Some(start) = clean.find("<coaching_issue>") {
-        if let Some(end) = clean[start..].find("</coaching_issue>").map(|p| start + p) {
-            let block = &clean[start + 16..end];
-            if let Ok(issue) = serde_json::from_str::<CoachingIssue>(block.trim()) {
-                issues.push(issue);
-            }
-            clean = format!("{}{}", &clean[..start], &clean[end + 17..]);
-        } else {
+    extract_issue_tag(&mut clean, "coaching_issues", &mut issues);
+    extract_issue_tag(&mut clean, "coaching_issue", &mut issues);
+    issues = issues
+        .into_iter()
+        .filter_map(normalize_coaching_issue)
+        .collect();
+    (clean.trim().to_owned(), issues)
+}
+
+fn extract_issue_tag(clean: &mut String, tag: &str, issues: &mut Vec<CoachingIssue>) {
+    let opening = format!("<{tag}>");
+    let closing = format!("</{tag}>");
+    loop {
+        let lower = clean.to_ascii_lowercase();
+        let Some(start) = lower.find(&opening) else {
             break;
-        }
+        };
+        let content_start = start + opening.len();
+        let Some(relative_end) = lower[content_start..].find(&closing) else {
+            break;
+        };
+        let end = content_start + relative_end;
+        let block = clean[content_start..end].to_owned();
+        issues.extend(parse_coaching_issue_block(&block));
+        clean.replace_range(start..end + closing.len(), "");
     }
-    (clean, issues)
+}
+
+fn parse_coaching_issue_block(block: &str) -> Vec<CoachingIssue> {
+    let mut json_text = block.trim();
+    if let Some(fenced) = json_text.strip_prefix("```json") {
+        json_text = fenced.strip_suffix("```").unwrap_or(fenced).trim();
+    } else if let Some(fenced) = json_text.strip_prefix("```") {
+        json_text = fenced.strip_suffix("```").unwrap_or(fenced).trim();
+    }
+    serde_json::from_str::<Vec<CoachingIssue>>(json_text).unwrap_or_else(|_| {
+        serde_json::from_str::<CoachingIssue>(json_text)
+            .map(|issue| vec![issue])
+            .unwrap_or_default()
+    })
+}
+
+fn normalize_coaching_issue(mut issue: CoachingIssue) -> Option<CoachingIssue> {
+    issue.issue_key = issue.issue_key.trim().to_owned();
+    issue.category = issue.category.trim().to_owned();
+    issue.title = issue.title.trim().to_owned();
+    if issue.issue_key.is_empty() || issue.category.is_empty() || issue.title.is_empty() {
+        return None;
+    }
+    issue.description = issue.description.map(|value| value.trim().to_owned());
+    issue.map = issue.map.map(|value| value.trim().to_owned());
+    issue.side = issue.side.map(|value| value.trim().to_owned());
+    issue.area = issue.area.map(|value| value.trim().to_owned());
+    issue.severity = issue.severity.clamp(0.0, 1.0);
+    issue.confidence = issue.confidence.clamp(0.0, 1.0);
+    Some(issue)
+}
+
+fn default_issue_score() -> f64 {
+    0.5
 }
 
 fn question_scope(question: &str) -> QuestionScope {
@@ -1311,9 +1515,63 @@ mod tests {
 
     use super::{
         AgentError, AgentService, AgentSettingsRequest, AgentTokenUsage, LlmProvider, ProviderKind,
-        agent_api_error, estimate_cost, normalize_base_url, normalize_model,
-        parse_anthropic_response, parse_chat_completion, parse_openai_response,
+        RetrievalMode, agent_api_error, estimate_cost, extract_coaching_issues, normalize_base_url,
+        normalize_model, parse_anthropic_response, parse_chat_completion, parse_openai_response,
+        question_retrieval_mode, serialize_context_with_budget,
     };
+
+    #[test]
+    fn history_questions_skip_current_match_retrieval() {
+        for question in [
+            "不看这局游戏，只分析历史问题",
+            "我以前有哪些长期问题？",
+            "Show my coaching history only",
+        ] {
+            assert_eq!(
+                question_retrieval_mode(question),
+                RetrievalMode::PersonalHistoryOnly
+            );
+        }
+        assert_eq!(
+            question_retrieval_mode("结合这局和历史问题给我建议"),
+            RetrievalMode::MatchAnalysis
+        );
+        assert_eq!(
+            question_retrieval_mode("分析这一局的防守"),
+            RetrievalMode::MatchAnalysis
+        );
+    }
+
+    #[test]
+    fn coaching_issue_blocks_are_hidden_and_parsed_robustly() {
+        let answer = r#"先减少无信息前压。
+<COACHING_ISSUES>
+```json
+[{"issue_key":"defense_overpush","category":"positioning","title":"防守无信息前压","description":null,"side":"defense","severity":0.8,"confidence":0.75}]
+```
+</COACHING_ISSUES>"#;
+        let (clean, issues) = extract_coaching_issues(answer);
+        assert_eq!(clean, "先减少无信息前压。");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].issue_key, "defense_overpush");
+        assert_eq!(issues[0].severity, 0.8);
+    }
+
+    #[test]
+    fn serialized_context_has_a_hard_size_budget() {
+        let oversized_rounds = (0..20)
+            .map(|round| json!({"round":round,"combat":["x".repeat(20_000)]}))
+            .collect::<Vec<_>>();
+        let serialized = serialize_context_with_budget(json!({
+            "retrieval_mode":"match_analysis",
+            "personal_issues":[],
+            "player_profile":{},
+            "semantic_replay":{"relevant_rounds":oversized_rounds}
+        }))
+        .expect("context serialization");
+        assert!(serialized.len() <= super::MAX_CONTEXT_BYTES);
+        assert!(serde_json::from_str::<serde_json::Value>(&serialized).is_ok());
+    }
 
     #[test]
     fn deepseek_legacy_names_are_normalized_to_v4_flash() {
@@ -1424,13 +1682,25 @@ mod tests {
             post(|Json(body): Json<serde_json::Value>| async move {
                 assert_eq!(body["store"], false);
                 assert_eq!(body["truncation"], "auto");
-                assert!(body["input"].as_str().is_some_and(|text| text.contains("match-1")));
-                assert!(body["input"].as_str().is_some_and(|text| {
-                    text.contains("player_profile") && text.contains("GOLD 2")
-                }));
+                let input = body["input"].as_str().expect("request input");
+                assert!(input.contains("match-1"));
+                assert!(input.contains("player_profile") && input.contains("GOLD 2"));
+                let history_only = input.contains("只分析历史问题");
+                if history_only {
+                    assert!(input.contains(r#""retrieval_mode":"personal_history_only""#));
+                    assert!(input.contains(r#""current_match_loaded":false"#));
+                    assert!(!input.contains("semantic_replay"));
+                    assert!(input.contains("defense_overpush"));
+                } else {
+                    assert!(input.contains(r#""retrieval_mode":"match_analysis""#));
+                }
                 Json(json!({
                     "id":"resp-mock",
-                    "output":[{"content":[{"type":"output_text","text":"Only observed evidence is used."}]}],
+                    "output":[{"content":[{"type":"output_text","text": if history_only {
+                        "Your saved issue is defensive over-pushing."
+                    } else {
+                        "Only observed evidence is used.\n<coaching_issues>[{\"issue_key\":\"defense_overpush\",\"category\":\"positioning\",\"title\":\"Defensive over-push\",\"description\":null,\"side\":\"defense\",\"severity\":0.7,\"confidence\":0.8}]</coaching_issues>"
+                    }}]}],
                     "usage":{"input_tokens":21,"output_tokens":6,"total_tokens":27}
                 }))
             }),
@@ -1514,11 +1784,26 @@ mod tests {
         assert_eq!(answer.usage.total_tokens, 27);
         assert_eq!(answer.usage.cost_microusd, Some(33));
         assert_eq!(answer.limitations.len(), 1);
+        assert_eq!(answer.answer, "Only observed evidence is used.");
+        let issues = database
+            .list_player_issues("user-1")
+            .await
+            .expect("persisted coaching issue");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["occurrences"], 1);
+        let history_answer = service
+            .coach("user-1", "match-1", "不看这局游戏，只分析历史问题")
+            .await
+            .expect("history-only coach answer");
+        assert_eq!(
+            history_answer.answer,
+            "Your saved issue is defensive over-pushing."
+        );
         let history = database
             .list_agent_messages_for_match("user-1", "match-1")
             .await
             .expect("history");
-        assert_eq!(history.len(), 2);
+        assert_eq!(history.len(), 4);
         assert_eq!(history[1].usage.total_tokens, 27);
     }
 

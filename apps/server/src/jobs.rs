@@ -1211,6 +1211,19 @@ mod tests {
                     "A-defense retrieval must return semantic rounds"
                 );
                 assert!(
+                    semantic_context.context["relevant_rounds"]
+                        .as_array()
+                        .is_some_and(|rounds| rounds.len() <= 6),
+                    "Agent retrieval must cap detailed rounds"
+                );
+                let semantic_context_bytes = serde_json::to_vec(&semantic_context.context)
+                    .expect("serialize semantic context")
+                    .len();
+                assert!(
+                    semantic_context_bytes < 96_000,
+                    "fixture semantic context must remain within the Agent input budget; got {semantic_context_bytes} bytes"
+                );
+                assert!(
                     semantic_context.context["tools_used"]
                         .as_array()
                         .is_some_and(|tools| tools.iter().any(|tool| tool == "get_nearby_players")),

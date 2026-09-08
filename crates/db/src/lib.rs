@@ -24,6 +24,9 @@ use valcoach_replay_adapter::{NormalizedRecord, ParsedBundleSource, ReplaySource
 use semantic::SemanticBuilder;
 
 const INSERT_BATCH_SIZE: usize = 500;
+const MAX_SEMANTIC_CONTEXT_ROUNDS: usize = 6;
+const MAX_SEMANTIC_EVIDENCE_ITEMS: usize = 96;
+const MAX_NEARBY_COMBAT_EVENTS: usize = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserRecord {
@@ -183,6 +186,32 @@ fn collect_evidence(events: &[Value], target: &mut Vec<Value>) {
             target.push(item.clone());
         }
     }
+}
+
+fn compact_event_evidence(event: &Value, maximum: usize) -> Vec<Value> {
+    let mut items = event
+        .get("evidence")
+        .map(|evidence| match evidence {
+            Value::Array(values) => values.clone(),
+            Value::Null => Vec::new(),
+            value => vec![value.clone()],
+        })
+        .unwrap_or_default();
+    items.sort_by_key(Value::to_string);
+    items.dedup();
+    if items.len() <= maximum {
+        return items;
+    }
+    if maximum == 0 {
+        return Vec::new();
+    }
+    if maximum == 1 {
+        return vec![items[0].clone()];
+    }
+    let last = items.len() - 1;
+    (0..maximum)
+        .map(|index| items[index * last / (maximum - 1)].clone())
+        .collect()
 }
 
 /// Merge consecutive shots from the same attacker + weapon into compact bursts.
@@ -1402,13 +1431,16 @@ impl Database {
             .await?
         } else {
             let mut active = sqlx::query_scalar::<_, i64>(
-                r#"SELECT DISTINCT round_no FROM combat_events
+                r#"SELECT round_no FROM combat_events
                    WHERE match_id = ? AND (attacker_player_id = ? OR victim_player_id = ?)
-                   ORDER BY round_no"#,
+                   GROUP BY round_no
+                   ORDER BY COUNT(*) DESC, round_no
+                   LIMIT ?"#,
             )
             .bind(match_id)
             .bind(player_id)
             .bind(player_id)
+            .bind(MAX_SEMANTIC_CONTEXT_ROUNDS as i64)
             .fetch_all(&self.pool)
             .await?
             .into_iter()
@@ -1423,8 +1455,10 @@ impl Database {
                             .and_then(Value::as_u64)
                             .map(|value| value as u32)
                     })
+                    .take(MAX_SEMANTIC_CONTEXT_ROUNDS)
                     .collect();
             }
+            active.sort_unstable();
             active
         };
 
@@ -1442,7 +1476,10 @@ impl Database {
         } else {
             Vec::new()
         };
-        for round_no in selected_numbers.into_iter().take(30) {
+        for round_no in selected_numbers
+            .into_iter()
+            .take(MAX_SEMANTIC_CONTEXT_ROUNDS)
+        {
             let movement = self
                 .get_player_movement(match_id, player_id, round_no)
                 .await?;
@@ -1455,7 +1492,7 @@ impl Database {
                 .await?;
             let spike = self.get_spike_events(match_id, round_no).await?;
             let mut nearby_players_at_combat = Vec::new();
-            for event in combat.iter().take(16) {
+            for event in combat.iter().take(MAX_NEARBY_COMBAT_EVENTS) {
                 let selected_is_attacker =
                     event.get("attacker").and_then(Value::as_str) == Some(player_id);
                 let position_key = if selected_is_attacker {
@@ -1474,14 +1511,25 @@ impl Database {
                 ) else {
                     continue;
                 };
+                let nearby = self
+                    .get_nearby_players(match_id, timestamp_ms, x, y, z, 2500.0)
+                    .await?
+                    .into_iter()
+                    .map(|player| {
+                        json!({
+                            "player_id": player.get("player_id"),
+                            "team": player.get("team"),
+                            "agent": player.get("agent"),
+                            "distance_units": player.get("distance_units"),
+                        })
+                    })
+                    .collect::<Vec<_>>();
                 nearby_players_at_combat.push(json!({
-                    "time_ms": timestamp_ms,
                     "human_time": valcoach_domain::humanize::humanize_time(timestamp_ms, Some(round_no),
                         rounds.iter().find(|r| r.get("round_no").and_then(Value::as_u64) == Some(round_no as u64))
                         .and_then(|r| r.get("start_ms").and_then(Value::as_i64))),
-                    "origin": position,
                     "radius_units": 2500,
-                    "players": self.get_nearby_players(match_id, timestamp_ms, x, y, z, 2500.0).await?
+                    "players": nearby,
                 }));
             }
             let round_start_ms = rounds
@@ -1492,6 +1540,7 @@ impl Database {
                 .and_then(|round| round.get("start_ms").and_then(Value::as_i64));
             let humanized_combat: Vec<Value> = combat
                 .iter()
+                .take(64)
                 .map(|event| {
                     let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
                     let human_time = valcoach_domain::humanize::humanize_time(
@@ -1499,15 +1548,24 @@ impl Database {
                         Some(round_no),
                         round_start_ms,
                     );
-                    let mut enriched = event.clone();
-                    if let Some(obj) = enriched.as_object_mut() {
-                        obj.insert("human_time".to_string(), json!(human_time));
-                    }
-                    enriched
+                    json!({
+                        "human_time": human_time,
+                        "kind": event.get("kind"),
+                        "attacker": event.get("attacker"),
+                        "victim": event.get("victim"),
+                        "weapon": event.get("weapon"),
+                        "shots": event.get("shots"),
+                        "damage": event.get("damage"),
+                        "killed": event.get("killed"),
+                        "hit_regions": event.get("hit_regions"),
+                        "area": event.get("area"),
+                        "evidence": compact_event_evidence(event, 2),
+                    })
                 })
                 .collect();
             let humanized_abilities: Vec<Value> = abilities
                 .iter()
+                .take(48)
                 .map(|event| {
                     let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
                     let human_time = valcoach_domain::humanize::humanize_time(
@@ -1515,15 +1573,17 @@ impl Database {
                         Some(round_no),
                         round_start_ms,
                     );
-                    let mut enriched = event.clone();
-                    if let Some(obj) = enriched.as_object_mut() {
-                        obj.insert("human_time".to_string(), json!(human_time));
-                    }
-                    enriched
+                    json!({
+                        "human_time": human_time,
+                        "ability": event.get("ability"),
+                        "area": event.get("area"),
+                        "evidence": compact_event_evidence(event, 1),
+                    })
                 })
                 .collect();
             let humanized_spike: Vec<Value> = spike
                 .iter()
+                .take(16)
                 .map(|event| {
                     let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
                     let human_time = valcoach_domain::humanize::humanize_time(
@@ -1531,41 +1591,66 @@ impl Database {
                         Some(round_no),
                         round_start_ms,
                     );
-                    let mut enriched = event.clone();
-                    if let Some(obj) = enriched.as_object_mut() {
-                        obj.insert("human_time".to_string(), json!(human_time));
-                    }
-                    enriched
+                    json!({
+                        "human_time": human_time,
+                        "kind": event.get("kind"),
+                        "player": event.get("player"),
+                        "area": event.get("area"),
+                        "evidence": compact_event_evidence(event, 1),
+                    })
                 })
                 .collect();
-            let humanized_movement: Vec<Value> = movement
-                .iter()
-                .map(|event| {
-                    let time_ms = event.get("time_ms").and_then(Value::as_i64).unwrap_or(0);
-                    let human_time = valcoach_domain::humanize::humanize_time(
-                        time_ms,
-                        Some(round_no),
-                        round_start_ms,
-                    );
-                    let mut enriched = event.clone();
-                    if let Some(obj) = enriched.as_object_mut() {
-                        obj.insert("human_time".to_string(), json!(human_time));
-                    }
-                    enriched
+            let movement_area_timeline = compact_movement_segments(&movement, round_start_ms)
+                .into_iter()
+                .map(|segment| {
+                    json!({
+                        "from": segment.get("from"),
+                        "to": segment.get("to"),
+                        "area": segment.get("area"),
+                        "start": segment.get("start"),
+                        "end": segment.get("end"),
+                        "alive": segment.get("alive"),
+                        "observed_samples": segment.get("waypoints"),
+                    })
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            let movement_area_timeline = sampled_positions(&movement_area_timeline, 32);
             collect_evidence(&humanized_combat, &mut evidence);
             collect_evidence(&humanized_abilities, &mut evidence);
             collect_evidence(&humanized_spike, &mut evidence);
-            collect_evidence(&humanized_movement, &mut evidence);
+            if let Some(first) = movement.first() {
+                collect_evidence(std::slice::from_ref(first), &mut evidence);
+            }
+            if let Some(last) = movement
+                .last()
+                .filter(|last| movement.first().map(Value::to_string) != Some(last.to_string()))
+            {
+                collect_evidence(std::slice::from_ref(last), &mut evidence);
+            }
             if let Some(round) = rounds.iter().find(|round| {
                 round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64)
             }) {
                 collect_evidence(std::slice::from_ref(round), &mut evidence);
             }
+            let round_summary = rounds
+                .iter()
+                .find(|round| {
+                    round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64)
+                })
+                .map(|round| {
+                    json!({
+                        "round_no": round.get("round_no"),
+                        "start_ms": round.get("start_ms"),
+                        "buy_end_ms": round.get("buy_end_ms"),
+                        "end_ms": round.get("end_ms"),
+                        "team_a_side": round.get("team_a_side"),
+                        "team_b_side": round.get("team_b_side"),
+                        "winner_team": round.get("winner_team"),
+                    })
+                });
             round_contexts.push(json!({
-                "round": rounds.iter().find(|round| round.get("round_no").and_then(Value::as_u64) == Some(round_no as u64)),
-                "movement_area_timeline": humanized_movement,
+                "round": round_summary,
+                "movement_area_timeline": movement_area_timeline,
                 "combat": humanized_combat,
                 "abilities": humanized_abilities,
                 "spike": humanized_spike,
@@ -1574,6 +1659,7 @@ impl Database {
         }
         evidence.sort_by_key(Value::to_string);
         evidence.dedup();
+        evidence.truncate(MAX_SEMANTIC_EVIDENCE_ITEMS);
         let diagnostics = self.semantic_diagnostics(match_id).await?;
         let mut limitations = Vec::new();
         if round_contexts.is_empty() {
@@ -1607,7 +1693,14 @@ impl Database {
                 "player": { "id": player_id, "subject": player.0, "team": player.1, "agent": player.2.as_deref().map(domain_agent_display_name),
                     "character_net_guids": serde_json::from_str::<Value>(&player.3).unwrap_or_else(|_| json!([])) },
                 "players": all_players,
-                "all_rounds": rounds,
+                "all_rounds": rounds.iter().map(|round| json!({
+                    "round_no": round.get("round_no"),
+                    "start_ms": round.get("start_ms"),
+                    "end_ms": round.get("end_ms"),
+                    "team_a_side": round.get("team_a_side"),
+                    "team_b_side": round.get("team_b_side"),
+                    "winner_team": round.get("winner_team"),
+                })).collect::<Vec<_>>(),
                 "area_occupancy": area_occupancy,
                 "relevant_rounds": round_contexts,
                 "semantic_diagnostics": diagnostics,
@@ -2295,8 +2388,8 @@ impl Database {
 
     /// Retrieve the player's personal issues for coaching context.
     pub async fn list_player_issues(&self, user_id: &str) -> Result<Vec<Value>, DatabaseError> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>, Option<String>, f64, f64, String, i64, Option<String>, Option<i64>, Option<i64>)>(
-            "SELECT issue_key, category, title, description, map_name, side, area, severity, confidence, status, occurrences, last_match_id, last_round_no, last_timestamp_ms FROM player_issues WHERE user_id = ? AND status != 'resolved' ORDER BY occurrences DESC, severity DESC LIMIT 10",
+        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, f64, f64, String, i64, Option<String>, Option<i64>, Option<i64>)>(
+            "SELECT issue_key, category, title, description, map_name, side, area, CAST(severity AS REAL), CAST(confidence AS REAL), status, occurrences, last_match_id, last_round_no, last_timestamp_ms FROM player_issues WHERE user_id = ? AND status != 'resolved' ORDER BY occurrences DESC, severity DESC LIMIT 10",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -2310,6 +2403,50 @@ impl Database {
                     "severity": r.7, "confidence": r.8, "status": r.9, "occurrences": r.10,
                     "last_match_id": r.11, "last_round_no": r.12, "last_timestamp_ms": r.13,
                 })
+            })
+            .collect())
+    }
+
+    /// Return compact prior coaching exchanges across the user's matches. This is used by
+    /// history-only questions so the Agent does not need to load any replay timeline.
+    pub async fn recent_coaching_exchanges_for_user(
+        &self,
+        user_id: &str,
+        limit: usize,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+            ),
+        >(
+            r#"SELECT conversations.match_id,
+                      MAX(CASE WHEN messages.role = 'user' THEN substr(messages.content, 1, 1600) END),
+                      MAX(CASE WHEN messages.role = 'assistant' THEN substr(messages.content, 1, 1600) END),
+                      conversations.created_at
+               FROM conversations
+               JOIN messages ON messages.conversation_id = conversations.id
+               WHERE conversations.user_id = ? AND conversations.match_id IS NOT NULL
+               GROUP BY conversations.id
+               ORDER BY conversations.created_at DESC, conversations.id DESC
+               LIMIT ?"#,
+        )
+        .bind(user_id)
+        .bind(limit.clamp(1, 20) as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(match_id, question, answer, created_at)| {
+                Some(json!({
+                    "match_id": match_id?,
+                    "question": question?,
+                    "answer": answer?,
+                    "created_at": created_at,
+                }))
             })
             .collect())
     }
@@ -2332,13 +2469,18 @@ impl Database {
         round_no: Option<i64>,
         timestamp_ms: Option<i64>,
     ) -> Result<(), DatabaseError> {
+        let issue_id = format!("{user_id}:{issue_key}");
+        let mut transaction = self.pool.begin().await?;
         sqlx::query(
-            r#"INSERT INTO player_issues (id, user_id, issue_key, category, title, description, map_name, side, area, severity, confidence, last_match_id, last_round_no, last_timestamp_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            r#"INSERT INTO player_issues (id, user_id, issue_key, category, title, description, map_name, side, area, severity, confidence, occurrences, last_match_id, last_round_no, last_timestamp_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             ON CONFLICT(user_id, issue_key) DO UPDATE SET
                 category = excluded.category,
                 title = excluded.title,
                 description = excluded.description,
+                map_name = COALESCE(excluded.map_name, player_issues.map_name),
+                side = COALESCE(excluded.side, player_issues.side),
+                area = COALESCE(excluded.area, player_issues.area),
                 severity = (player_issues.severity * 0.6 + excluded.severity * 0.4),
                 confidence = excluded.confidence,
                 status = 'active',
@@ -2348,7 +2490,7 @@ impl Database {
                 last_timestamp_ms = excluded.last_timestamp_ms,
                 updated_at = CURRENT_TIMESTAMP"#,
         )
-        .bind(format!("{user_id}:{issue_key}"))
+        .bind(&issue_id)
         .bind(user_id)
         .bind(issue_key)
         .bind(category)
@@ -2362,8 +2504,24 @@ impl Database {
         .bind(match_id)
         .bind(round_no)
         .bind(timestamp_ms)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
+        if let Some(match_id) = match_id {
+            sqlx::query(
+                r#"INSERT INTO issue_occurrences
+                   (id, issue_id, match_id, round_no, timestamp_ms, severity, evidence_json)
+                   VALUES (?, ?, ?, ?, ?, ?, '[]')"#,
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&issue_id)
+            .bind(match_id)
+            .bind(round_no)
+            .bind(timestamp_ms)
+            .bind(severity)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -3215,6 +3373,46 @@ mod tests {
         assert_eq!(usage.total_tokens, 17);
         assert_eq!(usage.cost_microusd, 34);
         assert_eq!(usage.priced_requests, 1);
+
+        let recent = database
+            .recent_coaching_exchanges_for_user("user-1", 8)
+            .await
+            .expect("recent coaching exchanges");
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0]["question"], "How did I move?");
+
+        for severity in [0.7, 0.9] {
+            database
+                .upsert_player_issue(
+                    "user-1",
+                    "defense_overpush",
+                    "positioning",
+                    "Defensive over-push",
+                    None,
+                    None,
+                    Some("defense"),
+                    None,
+                    severity,
+                    0.8,
+                    Some("match-1"),
+                    Some(3),
+                    Some(12_000),
+                )
+                .await
+                .expect("upsert coaching issue");
+        }
+        let issues = database
+            .list_player_issues("user-1")
+            .await
+            .expect("list coaching issues with nullable descriptions");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["occurrences"], 2);
+        assert!(issues[0]["description"].is_null());
+        let occurrence_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM issue_occurrences")
+            .fetch_one(database.pool())
+            .await
+            .expect("issue occurrence count");
+        assert_eq!(occurrence_rows, 2);
     }
 
     #[tokio::test]

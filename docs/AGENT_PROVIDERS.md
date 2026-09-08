@@ -39,7 +39,11 @@ keys are also held only in memory. Keys are never returned to the browser, store
 usage rows, databases, logs, Replay Bundles, or Git. The model receives the
 stable match metadata, capability map, scoped rounds, area/movement timelines, combat, abilities,
 Spike facts, nearby-player snapshots, compact deterministic metrics and limitations—not the `.vrf`
-file or full raw NDJSON.
+file or full raw NDJSON. Match analysis ranks and includes at most six detailed rounds, compacts
+movement into area transitions, samples evidence references, and enforces a 96,000-byte serialized
+context ceiling before a provider request is made. Questions that ask only for historical problems
+use a separate lightweight path containing the saved issue memory, player profile, and up to eight
+recent coaching exchanges; the current replay timeline is not loaded.
 
 Every prompt requires capability checks, separates observations from recommendations, and forbids
 inventing missing facts. A user must bind an observed player before personalized movement metrics
