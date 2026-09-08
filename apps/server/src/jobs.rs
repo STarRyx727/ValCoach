@@ -718,38 +718,7 @@ fn normalize_played_at(value: &str) -> Option<String> {
 }
 
 fn agent_name_from_uuid(character_id: &str) -> &str {
-    match character_id.to_ascii_lowercase().as_str() {
-        "5f8d3a7f-467b-97f3-062c-13acf203c006" => "Breach",
-        "f94c3b30-42be-e959-889c-5aa313dba261" => "Raze",
-        "6f2a04ca-43e0-be17-7f36-b3908627744d" => "Skye",
-        "117ed9e3-49f3-6512-3ccf-0cada7e3823b" => "Cypher",
-        "eb93336a-449b-9c1b-0a54-a891f7921d69" => "Phoenix",
-        "707eab51-4836-f488-046a-cda6bf494859" => "Viper",
-        "41fb69c1-4189-7b37-f117-bcaf1e96f1bf" => "Astra",
-        "7f94d92c-4234-0a36-9646-3a87eb8b5c89" => "Yoru",
-        "601dbbe7-43ce-be57-2a40-4abd24953621" => "KAY/O",
-        "95b78ed7-4637-86d9-7e41-71ba8c293152" => "Harbor",
-        "cc8b64c8-4b25-4ff9-6e7f-37b4da43d235" => "Deadlock",
-        "0e38b510-41a8-5780-5e8f-568b2a4f2d6c" => "Iso",
-        "bb2a4828-46eb-8cd1-e765-15848195d751" => "Neon",
-        "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc" => "Reyna",
-        "1dbf2edd-4729-0984-3115-daa5eed44993" => "Killjoy",
-        "dade69b4-4f5a-8528-247b-219e5a1facd6" => "Fade",
-        "569fdd95-4d10-43ab-ca70-79becc718b46" => "Sage",
-        "add6443a-41bd-e414-f6ad-e58d267f4e95" => "Jett",
-        "320b2a48-4d9b-a075-30f1-1f93a9b638fa" => "Sova",
-        "8e253930-4c05-31dd-1b6c-968525494517" => "Omen",
-        "e370fa57-4757-3604-3648-499e1f642d3f" => "Gekko",
-        "9f0d8ba9-4140-b941-57d3-a7ad57c6b417" => "Brimstone",
-        "22697a3d-45bf-8dd7-4fec-84a9e28c69d7" => "Chamber",
-        "92eeef5d-43b5-1d4a-8d03-b3927a09034b" => "Veto",
-        "1ec8eae0-4f57-4f81-61b2-60aea6954c31" => "Clove",
-        "7c8a4701-4de6-9355-b254-e09bc2a34b72" => "Miks",
-        "df1cb487-4902-002e-5c17-d28e83e78588" => "Waylay",
-        "efba5359-4016-a1e5-7626-b1ae76895940" => "Vyse",
-        "b444168c-4e35-8076-db47-ef9bf368f384" => "Tejo",
-        _ => "Unknown",
-    }
+    valcoach_domain::agent_display_name_from_uuid(character_id).unwrap_or("Unknown")
 }
 
 async fn write_bundle_manifest(
@@ -1207,14 +1176,23 @@ mod tests {
                     spawn_rows < movement_count / 2,
                     "map resolution must not collapse into Spawn"
                 );
-                assert_eq!(
-                    database
-                        .scoreboard_for_match_for_user("user-1", &match_id)
-                        .await
-                        .expect("scoreboard")
-                        .len(),
-                    10
-                );
+                let scoreboard = database
+                    .scoreboard_for_match_for_user("user-1", &match_id)
+                    .await
+                    .expect("scoreboard");
+                assert_eq!(scoreboard.len(), 10);
+                assert!(scoreboard.iter().all(|row| {
+                    row.rounds_played == 20
+                        && row.acs.is_finite()
+                        && row.adr.is_finite()
+                        && (0.0..=100.0).contains(&row.headshot_percentage)
+                }));
+                let selected_stats = scoreboard
+                    .iter()
+                    .find(|row| row.player_id == selected_player_id)
+                    .expect("selected player scoreboard row");
+                assert_eq!((selected_stats.kills, selected_stats.deaths), (18, 17));
+                assert!(selected_stats.acs > 0.0 && selected_stats.adr > 0.0);
                 let semantic_context = database
                     .build_semantic_coaching_context(
                         "user-1",

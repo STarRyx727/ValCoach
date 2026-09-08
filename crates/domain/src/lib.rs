@@ -4,6 +4,7 @@ pub mod humanize;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,63 +12,84 @@ use serde_json::Value;
 pub type MatchId = String;
 pub type PlayerId = String;
 
-/// Convert internal agent codename to display name.
-/// "Hunter" -> "Sova", "Clay" -> "Raze", etc.
+#[derive(Debug, Deserialize)]
+struct GameContentSnapshot {
+    agents: Vec<ContentAgent>,
+    maps: Vec<ContentMap>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContentAgent {
+    uuid: String,
+    developer_name: String,
+    display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContentMap {
+    developer_name: String,
+    display_name: String,
+    #[serde(default)]
+    icon: Option<String>,
+}
+
+fn game_content() -> &'static GameContentSnapshot {
+    static CONTENT: OnceLock<GameContentSnapshot> = OnceLock::new();
+    CONTENT.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../web/public/game-content/catalog.json"
+        ))
+        .expect("bundled game-content catalog must be valid JSON")
+    })
+}
+
+/// Convert a replay-internal agent codename to its official English display name.
 pub fn agent_display_name(codename: &str) -> &str {
-    match codename {
-        "AggroBot" | "Aggrobot" => "Gekko",
-        "BountyHunter" => "Fade",
-        "Breach" => "Breach",
-        "Cable" => "Deadlock",
-        "Cashew" => "Tejo",
-        "Clay" => "Raze",
-        "Deadeye" => "Chamber",
-        "Grenadier" => "KAY/O",
-        "Guide" => "Skye",
-        "Gumshoe" => "Cypher",
-        "Hunter" => "Sova",
-        "Iris" => "Miks",
-        "Killjoy" => "Killjoy",
-        "Mage" => "Harbor",
-        "Nox" => "Vyse",
-        "Pandemic" => "Viper",
-        "Phoenix" => "Phoenix",
-        "Pine" => "Veto",
-        "Rift" => "Astra",
-        "Sarge" => "Brimstone",
-        "Sequoia" => "Iso",
-        "Smonk" => "Clove",
-        "Sprinter" => "Neon",
-        "Stealth" => "Yoru",
-        "Terra" => "Waylay",
-        "Thorne" => "Sage",
-        "Vampire" => "Reyna",
-        "Wraith" => "Omen",
-        "Wushu" => "Jett",
-        _ => codename,
-    }
+    game_content()
+        .agents
+        .iter()
+        .find(|agent| agent.developer_name.eq_ignore_ascii_case(codename))
+        .map(|agent| agent.display_name.as_str())
+        .unwrap_or(codename)
+}
+
+/// Resolve an agent UUID reported by the replay container probe.
+pub fn agent_display_name_from_uuid(uuid: &str) -> Option<&'static str> {
+    game_content()
+        .agents
+        .iter()
+        .find(|agent| agent.uuid.eq_ignore_ascii_case(uuid))
+        .map(|agent| agent.display_name.as_str())
+}
+
+/// Whether a name is an official English agent display name in the bundled snapshot.
+pub fn is_official_agent_display_name(name: &str) -> bool {
+    game_content()
+        .agents
+        .iter()
+        .any(|agent| agent.display_name.eq_ignore_ascii_case(name))
 }
 
 /// Convert map asset path to display name.
 /// "/Game/Maps/Bonsai/Bonsai" -> "Split"
 pub fn map_display_name(map_asset_path: &str) -> &str {
     let name = map_asset_path.rsplit('/').next().unwrap_or("");
-    match name {
-        "Bonsai" => "Split",
-        "Ascent" => "Ascent",
-        "Duality" => "Bind",
-        "Triad" => "Haven",
-        "Juliett" => "Sunset",
-        "Jam" => "Lotus",
-        "Pitt" => "Pearl",
-        "Canyon" => "Fracture",
-        "Foxtrot" => "Breeze",
-        "Port" => "Icebox",
-        "Infinity" => "Abyss",
-        "Rook" => "Corrode",
-        "Plummet" => "Summit",
-        _ => name,
-    }
+    game_content()
+        .maps
+        .iter()
+        .find(|map| map.developer_name.eq_ignore_ascii_case(name))
+        .map(|map| map.display_name.as_str())
+        .unwrap_or(name)
+}
+
+/// Resolve the bundled local minimap asset for a map path.
+pub fn map_icon_path(map_asset_path: &str) -> Option<&'static str> {
+    let name = map_asset_path.rsplit('/').next().unwrap_or("");
+    game_content()
+        .maps
+        .iter()
+        .find(|map| map.developer_name.eq_ignore_ascii_case(name))
+        .and_then(|map| map.icon.as_deref())
 }
 
 /// Extract the internal map name from asset path.

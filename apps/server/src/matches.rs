@@ -224,8 +224,17 @@ pub async fn list_maps(
             while let Ok(Some(entry)) = entries.next_entry().await {
                 if entry.path().extension().is_some_and(|ext| ext == "json")
                     && let Ok(bytes) = tokio::fs::read(entry.path()).await
-                    && let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                    && let Ok(mut meta) = serde_json::from_slice::<serde_json::Value>(&bytes)
                 {
+                    if let Some(map_url) = meta.get("map_url").and_then(serde_json::Value::as_str)
+                        && let Some(icon) = valcoach_domain::map_icon_path(map_url)
+                        && let Some(object) = meta.as_object_mut()
+                    {
+                        object.insert(
+                            "display_icon".to_owned(),
+                            serde_json::Value::String(icon.to_owned()),
+                        );
+                    }
                     maps.push(meta);
                 }
             }

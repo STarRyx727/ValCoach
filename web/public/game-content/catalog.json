@@ -1,0 +1,1258 @@
+{
+    "schema_version":  1,
+    "generated_at":  "2026-09-08T07:52:01.9911671Z",
+    "sources":  {
+                    "riot_public_content_catalog":  {
+                                                        "url":  "https://valorant.dyn.riotcdn.net/x/content-catalog/PublicContentCatalog-release-13.05.zip",
+                                                        "release":  "13.05",
+                                                        "etag":  "\"42bb0bc45e3e94a709aec0ead7663801\"",
+                                                        "last_modified":  "Tue, 01 Sep 2026 16:13:27 GMT",
+                                                        "content_length":  1264938870,
+                                                        "purpose":  "Official provenance baseline for names and visual assets"
+                                                    },
+                    "valorant_api":  {
+                                         "agents":  "https://valorant-api.com/v1/agents?isPlayableCharacter=true",
+                                         "maps":  "https://valorant-api.com/v1/maps",
+                                         "competitive_tiers":  "https://valorant-api.com/v1/competitivetiers",
+                                         "purpose":  "Normalized UUID, developer-name, display-name and asset mapping"
+                                     }
+                },
+    "agents":  [
+                   {
+                       "uuid":  "41fb69c1-4189-7b37-f117-bcaf1e96f1bf",
+                       "developer_name":  "Rift",
+                       "display_name":  "Astra",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/41fb69c1-4189-7b37-f117-bcaf1e96f1bf.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Nova Pulse",
+                                             "icon":  "/game-content/abilities/41fb69c1-4189-7b37-f117-bcaf1e96f1bf-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Nebula  / Dissipate",
+                                             "icon":  "/game-content/abilities/41fb69c1-4189-7b37-f117-bcaf1e96f1bf-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Gravity Well",
+                                             "icon":  "/game-content/abilities/41fb69c1-4189-7b37-f117-bcaf1e96f1bf-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Astral Form / Cosmic Divide",
+                                             "icon":  "/game-content/abilities/41fb69c1-4189-7b37-f117-bcaf1e96f1bf-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Passive",
+                                             "display_name":  "Astral Form",
+                                             "icon":  "/game-content/abilities/41fb69c1-4189-7b37-f117-bcaf1e96f1bf-passive.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "5f8d3a7f-467b-97f3-062c-13acf203c006",
+                       "developer_name":  "Breach",
+                       "display_name":  "Breach",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/5f8d3a7f-467b-97f3-062c-13acf203c006.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Flashpoint",
+                                             "icon":  "/game-content/abilities/5f8d3a7f-467b-97f3-062c-13acf203c006-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Fault Line",
+                                             "icon":  "/game-content/abilities/5f8d3a7f-467b-97f3-062c-13acf203c006-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Aftershock",
+                                             "icon":  "/game-content/abilities/5f8d3a7f-467b-97f3-062c-13acf203c006-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Rolling Thunder",
+                                             "icon":  "/game-content/abilities/5f8d3a7f-467b-97f3-062c-13acf203c006-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "9f0d8ba9-4140-b941-57d3-a7ad57c6b417",
+                       "developer_name":  "Sarge",
+                       "display_name":  "Brimstone",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/9f0d8ba9-4140-b941-57d3-a7ad57c6b417.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Stim Beacon",
+                                             "icon":  "/game-content/abilities/9f0d8ba9-4140-b941-57d3-a7ad57c6b417-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Incendiary",
+                                             "icon":  "/game-content/abilities/9f0d8ba9-4140-b941-57d3-a7ad57c6b417-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Sky Smoke",
+                                             "icon":  "/game-content/abilities/9f0d8ba9-4140-b941-57d3-a7ad57c6b417-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Orbital Strike",
+                                             "icon":  "/game-content/abilities/9f0d8ba9-4140-b941-57d3-a7ad57c6b417-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "22697a3d-45bf-8dd7-4fec-84a9e28c69d7",
+                       "developer_name":  "Deadeye",
+                       "display_name":  "Chamber",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/22697a3d-45bf-8dd7-4fec-84a9e28c69d7.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Rendezvous",
+                                             "icon":  "/game-content/abilities/22697a3d-45bf-8dd7-4fec-84a9e28c69d7-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Trademark",
+                                             "icon":  "/game-content/abilities/22697a3d-45bf-8dd7-4fec-84a9e28c69d7-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Headhunter",
+                                             "icon":  "/game-content/abilities/22697a3d-45bf-8dd7-4fec-84a9e28c69d7-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Tour De Force",
+                                             "icon":  "/game-content/abilities/22697a3d-45bf-8dd7-4fec-84a9e28c69d7-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "1dbf2edd-4729-0984-3115-daa5eed44993",
+                       "developer_name":  "Smonk",
+                       "display_name":  "Clove",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/1dbf2edd-4729-0984-3115-daa5eed44993.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Pick-me-up",
+                                             "icon":  "/game-content/abilities/1dbf2edd-4729-0984-3115-daa5eed44993-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Ruse",
+                                             "icon":  "/game-content/abilities/1dbf2edd-4729-0984-3115-daa5eed44993-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Not Dead Yet",
+                                             "icon":  "/game-content/abilities/1dbf2edd-4729-0984-3115-daa5eed44993-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Meddle",
+                                             "icon":  "/game-content/abilities/1dbf2edd-4729-0984-3115-daa5eed44993-ability1.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "117ed9e3-49f3-6512-3ccf-0cada7e3823b",
+                       "developer_name":  "Gumshoe",
+                       "display_name":  "Cypher",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/117ed9e3-49f3-6512-3ccf-0cada7e3823b.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Cyber Cage",
+                                             "icon":  "/game-content/abilities/117ed9e3-49f3-6512-3ccf-0cada7e3823b-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Spycam",
+                                             "icon":  "/game-content/abilities/117ed9e3-49f3-6512-3ccf-0cada7e3823b-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Trapwire",
+                                             "icon":  "/game-content/abilities/117ed9e3-49f3-6512-3ccf-0cada7e3823b-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Neural Theft",
+                                             "icon":  "/game-content/abilities/117ed9e3-49f3-6512-3ccf-0cada7e3823b-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "cc8b64c8-4b25-4ff9-6e7f-37b4da43d235",
+                       "developer_name":  "Cable",
+                       "display_name":  "Deadlock",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/cc8b64c8-4b25-4ff9-6e7f-37b4da43d235.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Sonic Sensor",
+                                             "icon":  "/game-content/abilities/cc8b64c8-4b25-4ff9-6e7f-37b4da43d235-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Barrier Mesh",
+                                             "icon":  "/game-content/abilities/cc8b64c8-4b25-4ff9-6e7f-37b4da43d235-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "GravNet",
+                                             "icon":  "/game-content/abilities/cc8b64c8-4b25-4ff9-6e7f-37b4da43d235-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Annihilation",
+                                             "icon":  "/game-content/abilities/cc8b64c8-4b25-4ff9-6e7f-37b4da43d235-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "dade69b4-4f5a-8528-247b-219e5a1facd6",
+                       "developer_name":  "BountyHunter",
+                       "display_name":  "Fade",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/dade69b4-4f5a-8528-247b-219e5a1facd6.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Seize",
+                                             "icon":  "/game-content/abilities/dade69b4-4f5a-8528-247b-219e5a1facd6-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Haunt",
+                                             "icon":  "/game-content/abilities/dade69b4-4f5a-8528-247b-219e5a1facd6-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Prowler",
+                                             "icon":  "/game-content/abilities/dade69b4-4f5a-8528-247b-219e5a1facd6-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Nightfall",
+                                             "icon":  "/game-content/abilities/dade69b4-4f5a-8528-247b-219e5a1facd6-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "e370fa57-4757-3604-3648-499e1f642d3f",
+                       "developer_name":  "Aggrobot",
+                       "display_name":  "Gekko",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/e370fa57-4757-3604-3648-499e1f642d3f.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Wingman",
+                                             "icon":  "/game-content/abilities/e370fa57-4757-3604-3648-499e1f642d3f-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Dizzy",
+                                             "icon":  "/game-content/abilities/e370fa57-4757-3604-3648-499e1f642d3f-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Mosh Pit",
+                                             "icon":  "/game-content/abilities/e370fa57-4757-3604-3648-499e1f642d3f-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Thrash",
+                                             "icon":  "/game-content/abilities/e370fa57-4757-3604-3648-499e1f642d3f-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "95b78ed7-4637-86d9-7e41-71ba8c293152",
+                       "developer_name":  "Mage",
+                       "display_name":  "Harbor",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/95b78ed7-4637-86d9-7e41-71ba8c293152.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "High Tide",
+                                             "icon":  "/game-content/abilities/95b78ed7-4637-86d9-7e41-71ba8c293152-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Storm Surge",
+                                             "icon":  "/game-content/abilities/95b78ed7-4637-86d9-7e41-71ba8c293152-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Cove",
+                                             "icon":  "/game-content/abilities/95b78ed7-4637-86d9-7e41-71ba8c293152-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Reckoning",
+                                             "icon":  "/game-content/abilities/95b78ed7-4637-86d9-7e41-71ba8c293152-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "0e38b510-41a8-5780-5e8f-568b2a4f2d6c",
+                       "developer_name":  "Sequoia",
+                       "display_name":  "Iso",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/0e38b510-41a8-5780-5e8f-568b2a4f2d6c.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Undercut",
+                                             "icon":  "/game-content/abilities/0e38b510-41a8-5780-5e8f-568b2a4f2d6c-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Kill Contract",
+                                             "icon":  "/game-content/abilities/0e38b510-41a8-5780-5e8f-568b2a4f2d6c-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Double Tap",
+                                             "icon":  "/game-content/abilities/0e38b510-41a8-5780-5e8f-568b2a4f2d6c-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Contingency",
+                                             "icon":  "/game-content/abilities/0e38b510-41a8-5780-5e8f-568b2a4f2d6c-grenade.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "add6443a-41bd-e414-f6ad-e58d267f4e95",
+                       "developer_name":  "Wushu",
+                       "display_name":  "Jett",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/add6443a-41bd-e414-f6ad-e58d267f4e95.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Updraft",
+                                             "icon":  "/game-content/abilities/add6443a-41bd-e414-f6ad-e58d267f4e95-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Tailwind",
+                                             "icon":  "/game-content/abilities/add6443a-41bd-e414-f6ad-e58d267f4e95-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Cloudburst",
+                                             "icon":  "/game-content/abilities/add6443a-41bd-e414-f6ad-e58d267f4e95-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Blade Storm",
+                                             "icon":  "/game-content/abilities/add6443a-41bd-e414-f6ad-e58d267f4e95-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Passive",
+                                             "display_name":  "Drift",
+                                             "icon":  "/game-content/abilities/add6443a-41bd-e414-f6ad-e58d267f4e95-passive.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "601dbbe7-43ce-be57-2a40-4abd24953621",
+                       "developer_name":  "Grenadier",
+                       "display_name":  "KAY/O",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/601dbbe7-43ce-be57-2a40-4abd24953621.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "FRAG/ment",
+                                             "icon":  "/game-content/abilities/601dbbe7-43ce-be57-2a40-4abd24953621-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "FLASH/drive",
+                                             "icon":  "/game-content/abilities/601dbbe7-43ce-be57-2a40-4abd24953621-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "ZERO/point",
+                                             "icon":  "/game-content/abilities/601dbbe7-43ce-be57-2a40-4abd24953621-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "NULL/cmd",
+                                             "icon":  "/game-content/abilities/601dbbe7-43ce-be57-2a40-4abd24953621-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "1e58de9c-4950-5125-93e9-a0aee9f98746",
+                       "developer_name":  "Killjoy",
+                       "display_name":  "Killjoy",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/1e58de9c-4950-5125-93e9-a0aee9f98746.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Nanoswarm",
+                                             "icon":  "/game-content/abilities/1e58de9c-4950-5125-93e9-a0aee9f98746-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "ALARMBOT",
+                                             "icon":  "/game-content/abilities/1e58de9c-4950-5125-93e9-a0aee9f98746-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "TURRET",
+                                             "icon":  "/game-content/abilities/1e58de9c-4950-5125-93e9-a0aee9f98746-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Lockdown",
+                                             "icon":  "/game-content/abilities/1e58de9c-4950-5125-93e9-a0aee9f98746-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "7c8a4701-4de6-9355-b254-e09bc2a34b72",
+                       "developer_name":  "Iris",
+                       "display_name":  "Miks",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/7c8a4701-4de6-9355-b254-e09bc2a34b72.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "M-pulse",
+                                             "icon":  "/game-content/abilities/7c8a4701-4de6-9355-b254-e09bc2a34b72-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Waveform",
+                                             "icon":  "/game-content/abilities/7c8a4701-4de6-9355-b254-e09bc2a34b72-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Harmonize",
+                                             "icon":  "/game-content/abilities/7c8a4701-4de6-9355-b254-e09bc2a34b72-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Bassquake",
+                                             "icon":  "/game-content/abilities/7c8a4701-4de6-9355-b254-e09bc2a34b72-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "bb2a4828-46eb-8cd1-e765-15848195d751",
+                       "developer_name":  "Sprinter",
+                       "display_name":  "Neon",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/bb2a4828-46eb-8cd1-e765-15848195d751.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "High Gear",
+                                             "icon":  "/game-content/abilities/bb2a4828-46eb-8cd1-e765-15848195d751-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Relay Bolt",
+                                             "icon":  "/game-content/abilities/bb2a4828-46eb-8cd1-e765-15848195d751-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Fast Lane",
+                                             "icon":  "/game-content/abilities/bb2a4828-46eb-8cd1-e765-15848195d751-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Overdrive",
+                                             "icon":  "/game-content/abilities/bb2a4828-46eb-8cd1-e765-15848195d751-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "8e253930-4c05-31dd-1b6c-968525494517",
+                       "developer_name":  "Wraith",
+                       "display_name":  "Omen",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/8e253930-4c05-31dd-1b6c-968525494517.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Paranoia",
+                                             "icon":  "/game-content/abilities/8e253930-4c05-31dd-1b6c-968525494517-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Dark Cover",
+                                             "icon":  "/game-content/abilities/8e253930-4c05-31dd-1b6c-968525494517-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Shrouded Step",
+                                             "icon":  "/game-content/abilities/8e253930-4c05-31dd-1b6c-968525494517-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "From the Shadows",
+                                             "icon":  "/game-content/abilities/8e253930-4c05-31dd-1b6c-968525494517-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "eb93336a-449b-9c1b-0a54-a891f7921d69",
+                       "developer_name":  "Phoenix",
+                       "display_name":  "Phoenix",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/eb93336a-449b-9c1b-0a54-a891f7921d69.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Blaze",
+                                             "icon":  "/game-content/abilities/eb93336a-449b-9c1b-0a54-a891f7921d69-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Hot Hands",
+                                             "icon":  "/game-content/abilities/eb93336a-449b-9c1b-0a54-a891f7921d69-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Curveball",
+                                             "icon":  "/game-content/abilities/eb93336a-449b-9c1b-0a54-a891f7921d69-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Run it Back",
+                                             "icon":  "/game-content/abilities/eb93336a-449b-9c1b-0a54-a891f7921d69-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Passive",
+                                             "display_name":  "Heating Up",
+                                             "icon":  null
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "f94c3b30-42be-e959-889c-5aa313dba261",
+                       "developer_name":  "Clay",
+                       "display_name":  "Raze",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/f94c3b30-42be-e959-889c-5aa313dba261.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Blast Pack",
+                                             "icon":  "/game-content/abilities/f94c3b30-42be-e959-889c-5aa313dba261-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Paint Shells",
+                                             "icon":  "/game-content/abilities/f94c3b30-42be-e959-889c-5aa313dba261-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Boom Bot",
+                                             "icon":  "/game-content/abilities/f94c3b30-42be-e959-889c-5aa313dba261-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Showstopper",
+                                             "icon":  "/game-content/abilities/f94c3b30-42be-e959-889c-5aa313dba261-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc",
+                       "developer_name":  "Vampire",
+                       "display_name":  "Reyna",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/a3bfb853-43b2-7238-a4f1-ad90e9e46bcc.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Devour",
+                                             "icon":  "/game-content/abilities/a3bfb853-43b2-7238-a4f1-ad90e9e46bcc-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Dismiss",
+                                             "icon":  "/game-content/abilities/a3bfb853-43b2-7238-a4f1-ad90e9e46bcc-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Leer",
+                                             "icon":  "/game-content/abilities/a3bfb853-43b2-7238-a4f1-ad90e9e46bcc-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Empress",
+                                             "icon":  "/game-content/abilities/a3bfb853-43b2-7238-a4f1-ad90e9e46bcc-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "569fdd95-4d10-43ab-ca70-79becc718b46",
+                       "developer_name":  "Thorne",
+                       "display_name":  "Sage",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/569fdd95-4d10-43ab-ca70-79becc718b46.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Slow Orb",
+                                             "icon":  "/game-content/abilities/569fdd95-4d10-43ab-ca70-79becc718b46-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Healing Orb",
+                                             "icon":  "/game-content/abilities/569fdd95-4d10-43ab-ca70-79becc718b46-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Barrier Orb",
+                                             "icon":  "/game-content/abilities/569fdd95-4d10-43ab-ca70-79becc718b46-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Resurrection",
+                                             "icon":  "/game-content/abilities/569fdd95-4d10-43ab-ca70-79becc718b46-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "6f2a04ca-43e0-be17-7f36-b3908627744d",
+                       "developer_name":  "Guide",
+                       "display_name":  "Skye",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/6f2a04ca-43e0-be17-7f36-b3908627744d.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Trailblazer",
+                                             "icon":  "/game-content/abilities/6f2a04ca-43e0-be17-7f36-b3908627744d-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Guiding Light",
+                                             "icon":  "/game-content/abilities/6f2a04ca-43e0-be17-7f36-b3908627744d-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Regrowth",
+                                             "icon":  "/game-content/abilities/6f2a04ca-43e0-be17-7f36-b3908627744d-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Seekers",
+                                             "icon":  "/game-content/abilities/6f2a04ca-43e0-be17-7f36-b3908627744d-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "320b2a48-4d9b-a075-30f1-1f93a9b638fa",
+                       "developer_name":  "Hunter",
+                       "display_name":  "Sova",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/320b2a48-4d9b-a075-30f1-1f93a9b638fa.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Shock Bolt",
+                                             "icon":  "/game-content/abilities/320b2a48-4d9b-a075-30f1-1f93a9b638fa-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Recon Bolt",
+                                             "icon":  "/game-content/abilities/320b2a48-4d9b-a075-30f1-1f93a9b638fa-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Owl Drone",
+                                             "icon":  "/game-content/abilities/320b2a48-4d9b-a075-30f1-1f93a9b638fa-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Hunter\u0027s Fury",
+                                             "icon":  "/game-content/abilities/320b2a48-4d9b-a075-30f1-1f93a9b638fa-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Passive",
+                                             "display_name":  "Uncanny Marksman",
+                                             "icon":  null
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "b444168c-4e35-8076-db47-ef9bf368f384",
+                       "developer_name":  "Cashew",
+                       "display_name":  "Tejo",
+                       "role":  "Initiator",
+                       "icon":  "/game-content/agents/b444168c-4e35-8076-db47-ef9bf368f384.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Guided Salvo",
+                                             "icon":  "/game-content/abilities/b444168c-4e35-8076-db47-ef9bf368f384-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Special Delivery",
+                                             "icon":  "/game-content/abilities/b444168c-4e35-8076-db47-ef9bf368f384-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Armageddon",
+                                             "icon":  "/game-content/abilities/b444168c-4e35-8076-db47-ef9bf368f384-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Stealth Drone",
+                                             "icon":  "/game-content/abilities/b444168c-4e35-8076-db47-ef9bf368f384-grenade.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "92eeef5d-43b5-1d4a-8d03-b3927a09034b",
+                       "developer_name":  "Pine",
+                       "display_name":  "Veto",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/92eeef5d-43b5-1d4a-8d03-b3927a09034b.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Interceptor",
+                                             "icon":  "/game-content/abilities/92eeef5d-43b5-1d4a-8d03-b3927a09034b-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Crosscut",
+                                             "icon":  "/game-content/abilities/92eeef5d-43b5-1d4a-8d03-b3927a09034b-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Evolution",
+                                             "icon":  "/game-content/abilities/92eeef5d-43b5-1d4a-8d03-b3927a09034b-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Chokehold",
+                                             "icon":  "/game-content/abilities/92eeef5d-43b5-1d4a-8d03-b3927a09034b-ability1.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "707eab51-4836-f488-046a-cda6bf494859",
+                       "developer_name":  "Pandemic",
+                       "display_name":  "Viper",
+                       "role":  "Controller",
+                       "icon":  "/game-content/agents/707eab51-4836-f488-046a-cda6bf494859.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Poison Cloud",
+                                             "icon":  "/game-content/abilities/707eab51-4836-f488-046a-cda6bf494859-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Toxic Screen",
+                                             "icon":  "/game-content/abilities/707eab51-4836-f488-046a-cda6bf494859-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Snake Bite",
+                                             "icon":  "/game-content/abilities/707eab51-4836-f488-046a-cda6bf494859-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Viper\u0027s Pit",
+                                             "icon":  "/game-content/abilities/707eab51-4836-f488-046a-cda6bf494859-ultimate.png"
+                                         },
+                                         {
+                                             "slot":  "Passive",
+                                             "display_name":  "Toxic",
+                                             "icon":  null
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "efba5359-4016-a1e5-7626-b1ae76895940",
+                       "developer_name":  "Nox",
+                       "display_name":  "Vyse",
+                       "role":  "Sentinel",
+                       "icon":  "/game-content/agents/efba5359-4016-a1e5-7626-b1ae76895940.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Shear",
+                                             "icon":  "/game-content/abilities/efba5359-4016-a1e5-7626-b1ae76895940-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Arc Rose",
+                                             "icon":  "/game-content/abilities/efba5359-4016-a1e5-7626-b1ae76895940-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Razorvine",
+                                             "icon":  "/game-content/abilities/efba5359-4016-a1e5-7626-b1ae76895940-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Steel Garden",
+                                             "icon":  "/game-content/abilities/efba5359-4016-a1e5-7626-b1ae76895940-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "df1cb487-4902-002e-5c17-d28e83e78588",
+                       "developer_name":  "Terra",
+                       "display_name":  "Waylay",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/df1cb487-4902-002e-5c17-d28e83e78588.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "Refract",
+                                             "icon":  "/game-content/abilities/df1cb487-4902-002e-5c17-d28e83e78588-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "Saturate",
+                                             "icon":  "/game-content/abilities/df1cb487-4902-002e-5c17-d28e83e78588-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "Lightspeed",
+                                             "icon":  "/game-content/abilities/df1cb487-4902-002e-5c17-d28e83e78588-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "Convergent Paths",
+                                             "icon":  "/game-content/abilities/df1cb487-4902-002e-5c17-d28e83e78588-ultimate.png"
+                                         }
+                                     ]
+                   },
+                   {
+                       "uuid":  "7f94d92c-4234-0a36-9646-3a87eb8b5c89",
+                       "developer_name":  "Stealth",
+                       "display_name":  "Yoru",
+                       "role":  "Duelist",
+                       "icon":  "/game-content/agents/7f94d92c-4234-0a36-9646-3a87eb8b5c89.png",
+                       "abilities":  [
+                                         {
+                                             "slot":  "Grenade",
+                                             "display_name":  "FAKEOUT",
+                                             "icon":  "/game-content/abilities/7f94d92c-4234-0a36-9646-3a87eb8b5c89-grenade.png"
+                                         },
+                                         {
+                                             "slot":  "Ability1",
+                                             "display_name":  "BLINDSIDE",
+                                             "icon":  "/game-content/abilities/7f94d92c-4234-0a36-9646-3a87eb8b5c89-ability1.png"
+                                         },
+                                         {
+                                             "slot":  "Ability2",
+                                             "display_name":  "GATECRASH",
+                                             "icon":  "/game-content/abilities/7f94d92c-4234-0a36-9646-3a87eb8b5c89-ability2.png"
+                                         },
+                                         {
+                                             "slot":  "Ultimate",
+                                             "display_name":  "DIMENSIONAL DRIFT",
+                                             "icon":  "/game-content/abilities/7f94d92c-4234-0a36-9646-3a87eb8b5c89-ultimate.png"
+                                         }
+                                     ]
+                   }
+               ],
+    "roles":  [
+                  {
+                      "uuid":  "1b47567f-8f7b-444b-aae3-b0c634622d10",
+                      "display_name":  "Initiator",
+                      "icon":  "/game-content/roles/1b47567f-8f7b-444b-aae3-b0c634622d10.png"
+                  },
+                  {
+                      "uuid":  "5fc02f99-4091-4486-a531-98459a3e95e9",
+                      "display_name":  "Sentinel",
+                      "icon":  "/game-content/roles/5fc02f99-4091-4486-a531-98459a3e95e9.png"
+                  },
+                  {
+                      "uuid":  "dbe8757e-9e92-4ed4-b39f-9dfc589691d4",
+                      "display_name":  "Duelist",
+                      "icon":  "/game-content/roles/dbe8757e-9e92-4ed4-b39f-9dfc589691d4.png"
+                  },
+                  {
+                      "uuid":  "4ee40330-ecdd-4f2f-98a8-eb1243428373",
+                      "display_name":  "Controller",
+                      "icon":  "/game-content/roles/4ee40330-ecdd-4f2f-98a8-eb1243428373.png"
+                  }
+              ],
+    "maps":  [
+                 {
+                     "uuid":  "224b0a95-48b9-f703-1bd8-67aca101a61f",
+                     "display_name":  "Abyss",
+                     "developer_name":  "Infinity",
+                     "asset_path":  "/Game/Maps/Infinity/Infinity",
+                     "icon":  "/game-content/maps/224b0a95-48b9-f703-1bd8-67aca101a61f.png"
+                 },
+                 {
+                     "uuid":  "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319",
+                     "display_name":  "Ascent",
+                     "developer_name":  "Ascent",
+                     "asset_path":  "/Game/Maps/Ascent/Ascent",
+                     "icon":  "/game-content/maps/7eaecc1b-4337-bbf6-6ab9-04b8f06b3319.png"
+                 },
+                 {
+                     "uuid":  "1f10dab3-4294-3827-fa35-c2aa00213cf3",
+                     "display_name":  "Basic Training",
+                     "developer_name":  "NPEV2",
+                     "asset_path":  "/Game/Maps/NPEV2/NPEV2",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "2c9d57ec-4431-9c5e-2939-8f9ef6dd5cba",
+                     "display_name":  "Bind",
+                     "developer_name":  "Duality",
+                     "asset_path":  "/Game/Maps/Duality/Duality",
+                     "icon":  "/game-content/maps/2c9d57ec-4431-9c5e-2939-8f9ef6dd5cba.png"
+                 },
+                 {
+                     "uuid":  "2fb9a4fd-47b8-4e7d-a969-74b4046ebd53",
+                     "display_name":  "Breeze",
+                     "developer_name":  "Foxtrot",
+                     "asset_path":  "/Game/Maps/Foxtrot/Foxtrot",
+                     "icon":  "/game-content/maps/2fb9a4fd-47b8-4e7d-a969-74b4046ebd53.png"
+                 },
+                 {
+                     "uuid":  "1c18ab1f-420d-0d8b-71d0-77ad3c439115",
+                     "display_name":  "Corrode",
+                     "developer_name":  "Rook",
+                     "asset_path":  "/Game/Maps/Rook/Rook",
+                     "icon":  "/game-content/maps/1c18ab1f-420d-0d8b-71d0-77ad3c439115.png"
+                 },
+                 {
+                     "uuid":  "690b3ed2-4dff-945b-8223-6da834e30d24",
+                     "display_name":  "District",
+                     "developer_name":  "HURM_Alley",
+                     "asset_path":  "/Game/Maps/HURM/HURM_Alley/HURM_Alley",
+                     "icon":  "/game-content/maps/690b3ed2-4dff-945b-8223-6da834e30d24.png"
+                 },
+                 {
+                     "uuid":  "2c09d728-42d5-30d8-43dc-96a05cc7ee9d",
+                     "display_name":  "Drift",
+                     "developer_name":  "HURM_Helix",
+                     "asset_path":  "/Game/Maps/HURM/HURM_Helix/HURM_Helix",
+                     "icon":  "/game-content/maps/2c09d728-42d5-30d8-43dc-96a05cc7ee9d.png"
+                 },
+                 {
+                     "uuid":  "b529448b-4d60-346e-e89e-00a4c527a405",
+                     "display_name":  "Fracture",
+                     "developer_name":  "Canyon",
+                     "asset_path":  "/Game/Maps/Canyon/Canyon",
+                     "icon":  "/game-content/maps/b529448b-4d60-346e-e89e-00a4c527a405.png"
+                 },
+                 {
+                     "uuid":  "d6336a5a-428f-c591-98db-c8a291159134",
+                     "display_name":  "Glitch",
+                     "developer_name":  "HURM_HighTide",
+                     "asset_path":  "/Game/Maps/HURM/HURM_HighTide/HURM_HighTide",
+                     "icon":  "/game-content/maps/d6336a5a-428f-c591-98db-c8a291159134.png"
+                 },
+                 {
+                     "uuid":  "2bee0dc9-4ffe-519b-1cbd-7fbe763a6047",
+                     "display_name":  "Haven",
+                     "developer_name":  "Triad",
+                     "asset_path":  "/Game/Maps/Triad/Triad",
+                     "icon":  "/game-content/maps/2bee0dc9-4ffe-519b-1cbd-7fbe763a6047.png"
+                 },
+                 {
+                     "uuid":  "e2ad5c54-4114-a870-9641-8ea21279579a",
+                     "display_name":  "Icebox",
+                     "developer_name":  "Port",
+                     "asset_path":  "/Game/Maps/Port/Port",
+                     "icon":  "/game-content/maps/e2ad5c54-4114-a870-9641-8ea21279579a.png"
+                 },
+                 {
+                     "uuid":  "12452a9d-48c3-0b02-e7eb-0381c3520404",
+                     "display_name":  "Kasbah",
+                     "developer_name":  "HURM_Bowl",
+                     "asset_path":  "/Game/Maps/HURM/HURM_Bowl/HURM_Bowl",
+                     "icon":  "/game-content/maps/12452a9d-48c3-0b02-e7eb-0381c3520404.png"
+                 },
+                 {
+                     "uuid":  "2fe4ed3a-450a-948b-6d6b-e89a78e680a9",
+                     "display_name":  "Lotus",
+                     "developer_name":  "Jam",
+                     "asset_path":  "/Game/Maps/Jam/Jam",
+                     "icon":  "/game-content/maps/2fe4ed3a-450a-948b-6d6b-e89a78e680a9.png"
+                 },
+                 {
+                     "uuid":  "fd267378-4d1d-484f-ff52-77821ed10dc2",
+                     "display_name":  "Pearl",
+                     "developer_name":  "Pitt",
+                     "asset_path":  "/Game/Maps/Pitt/Pitt",
+                     "icon":  "/game-content/maps/fd267378-4d1d-484f-ff52-77821ed10dc2.png"
+                 },
+                 {
+                     "uuid":  "de28aa9b-4cbe-1003-320e-6cb3ec309557",
+                     "display_name":  "Piazza",
+                     "developer_name":  "HURM_Yard",
+                     "asset_path":  "/Game/Maps/HURM/HURM_Yard/HURM_Yard",
+                     "icon":  "/game-content/maps/de28aa9b-4cbe-1003-320e-6cb3ec309557.png"
+                 },
+                 {
+                     "uuid":  "a9009649-421f-d5d5-f80c-0cbe02c125bb",
+                     "display_name":  "Skirmish A",
+                     "developer_name":  "Skirmish_A",
+                     "asset_path":  "/Game/Maps/Duel/Duel_1/Skirmish_A",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "a38a3f9a-4042-844c-8970-a3ac2f7ce93d",
+                     "display_name":  "Skirmish B",
+                     "developer_name":  "Skirmish_B",
+                     "asset_path":  "/Game/Maps/Duel/Duel_2/Skirmish_B",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "a264de0f-4a04-9c78-c97a-a6b192ce6e86",
+                     "display_name":  "Skirmish C",
+                     "developer_name":  "Skirmish_C",
+                     "asset_path":  "/Game/Maps/Duel/Duel_3/Skirmish_C",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "1c7555fc-4bc6-3b98-9674-789d47ef6c50",
+                     "display_name":  "Skirmish D",
+                     "developer_name":  "Skirmish_D",
+                     "asset_path":  "/Game/Maps/Duel/Duel_Platform/Skirmish_D",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "4490f1d6-4818-bf5f-9b3a-9c9a8dbb52ed",
+                     "display_name":  "Skirmish E",
+                     "developer_name":  "Skirmish_E",
+                     "asset_path":  "/Game/Maps/Duel/Duel_Heady/Skirmish_E",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "d960549e-485c-e861-8d71-aa9d1aed12a2",
+                     "display_name":  "Split",
+                     "developer_name":  "Bonsai",
+                     "asset_path":  "/Game/Maps/Bonsai/Bonsai",
+                     "icon":  "/game-content/maps/d960549e-485c-e861-8d71-aa9d1aed12a2.png"
+                 },
+                 {
+                     "uuid":  "756da597-416b-c0f2-f47b-afbdf28670bc",
+                     "display_name":  "Summit",
+                     "developer_name":  "Plummet",
+                     "asset_path":  "/Game/Maps/Plummet/Plummet",
+                     "icon":  "/game-content/maps/756da597-416b-c0f2-f47b-afbdf28670bc.png"
+                 },
+                 {
+                     "uuid":  "92584fbe-486a-b1b2-9faa-39b0f486b498",
+                     "display_name":  "Sunset",
+                     "developer_name":  "Juliett",
+                     "asset_path":  "/Game/Maps/Juliett/Juliett",
+                     "icon":  "/game-content/maps/92584fbe-486a-b1b2-9faa-39b0f486b498.png"
+                 },
+                 {
+                     "uuid":  "ee613ee9-28b7-4beb-9666-08db13bb2244",
+                     "display_name":  "The Range",
+                     "developer_name":  "Range",
+                     "asset_path":  "/Game/Maps/Poveglia/Range",
+                     "icon":  null
+                 },
+                 {
+                     "uuid":  "5914d1e0-40c4-cfdd-6b88-eba06347686c",
+                     "display_name":  "The Range",
+                     "developer_name":  "RangeV2",
+                     "asset_path":  "/Game/Maps/PovegliaV2/RangeV2",
+                     "icon":  null
+                 }
+             ],
+    "competitive_tiers":  [
+                              {
+                                  "tier":  1,
+                                  "display_name":  "Unused1",
+                                  "division_name":  "Unused1",
+                                  "icon":  null
+                              },
+                              {
+                                  "tier":  2,
+                                  "display_name":  "Unused2",
+                                  "division_name":  "Unused2",
+                                  "icon":  null
+                              },
+                              {
+                                  "tier":  3,
+                                  "display_name":  "IRON 1",
+                                  "division_name":  "IRON",
+                                  "icon":  "/game-content/ranks/3.png"
+                              },
+                              {
+                                  "tier":  4,
+                                  "display_name":  "IRON 2",
+                                  "division_name":  "IRON",
+                                  "icon":  "/game-content/ranks/4.png"
+                              },
+                              {
+                                  "tier":  5,
+                                  "display_name":  "IRON 3",
+                                  "division_name":  "IRON",
+                                  "icon":  "/game-content/ranks/5.png"
+                              },
+                              {
+                                  "tier":  6,
+                                  "display_name":  "BRONZE 1",
+                                  "division_name":  "BRONZE",
+                                  "icon":  "/game-content/ranks/6.png"
+                              },
+                              {
+                                  "tier":  7,
+                                  "display_name":  "BRONZE 2",
+                                  "division_name":  "BRONZE",
+                                  "icon":  "/game-content/ranks/7.png"
+                              },
+                              {
+                                  "tier":  8,
+                                  "display_name":  "BRONZE 3",
+                                  "division_name":  "BRONZE",
+                                  "icon":  "/game-content/ranks/8.png"
+                              },
+                              {
+                                  "tier":  9,
+                                  "display_name":  "SILVER 1",
+                                  "division_name":  "SILVER",
+                                  "icon":  "/game-content/ranks/9.png"
+                              },
+                              {
+                                  "tier":  10,
+                                  "display_name":  "SILVER 2",
+                                  "division_name":  "SILVER",
+                                  "icon":  "/game-content/ranks/10.png"
+                              },
+                              {
+                                  "tier":  11,
+                                  "display_name":  "SILVER 3",
+                                  "division_name":  "SILVER",
+                                  "icon":  "/game-content/ranks/11.png"
+                              },
+                              {
+                                  "tier":  12,
+                                  "display_name":  "GOLD 1",
+                                  "division_name":  "GOLD",
+                                  "icon":  "/game-content/ranks/12.png"
+                              },
+                              {
+                                  "tier":  13,
+                                  "display_name":  "GOLD 2",
+                                  "division_name":  "GOLD",
+                                  "icon":  "/game-content/ranks/13.png"
+                              },
+                              {
+                                  "tier":  14,
+                                  "display_name":  "GOLD 3",
+                                  "division_name":  "GOLD",
+                                  "icon":  "/game-content/ranks/14.png"
+                              },
+                              {
+                                  "tier":  15,
+                                  "display_name":  "PLATINUM 1",
+                                  "division_name":  "PLATINUM",
+                                  "icon":  "/game-content/ranks/15.png"
+                              },
+                              {
+                                  "tier":  16,
+                                  "display_name":  "PLATINUM 2",
+                                  "division_name":  "PLATINUM",
+                                  "icon":  "/game-content/ranks/16.png"
+                              },
+                              {
+                                  "tier":  17,
+                                  "display_name":  "PLATINUM 3",
+                                  "division_name":  "PLATINUM",
+                                  "icon":  "/game-content/ranks/17.png"
+                              },
+                              {
+                                  "tier":  18,
+                                  "display_name":  "DIAMOND 1",
+                                  "division_name":  "DIAMOND",
+                                  "icon":  "/game-content/ranks/18.png"
+                              },
+                              {
+                                  "tier":  19,
+                                  "display_name":  "DIAMOND 2",
+                                  "division_name":  "DIAMOND",
+                                  "icon":  "/game-content/ranks/19.png"
+                              },
+                              {
+                                  "tier":  20,
+                                  "display_name":  "DIAMOND 3",
+                                  "division_name":  "DIAMOND",
+                                  "icon":  "/game-content/ranks/20.png"
+                              },
+                              {
+                                  "tier":  21,
+                                  "display_name":  "ASCENDANT 1",
+                                  "division_name":  "ASCENDANT",
+                                  "icon":  "/game-content/ranks/21.png"
+                              },
+                              {
+                                  "tier":  22,
+                                  "display_name":  "ASCENDANT 2",
+                                  "division_name":  "ASCENDANT",
+                                  "icon":  "/game-content/ranks/22.png"
+                              },
+                              {
+                                  "tier":  23,
+                                  "display_name":  "ASCENDANT 3",
+                                  "division_name":  "ASCENDANT",
+                                  "icon":  "/game-content/ranks/23.png"
+                              },
+                              {
+                                  "tier":  24,
+                                  "display_name":  "IMMORTAL 1",
+                                  "division_name":  "IMMORTAL",
+                                  "icon":  "/game-content/ranks/24.png"
+                              },
+                              {
+                                  "tier":  25,
+                                  "display_name":  "IMMORTAL 2",
+                                  "division_name":  "IMMORTAL",
+                                  "icon":  "/game-content/ranks/25.png"
+                              },
+                              {
+                                  "tier":  26,
+                                  "display_name":  "IMMORTAL 3",
+                                  "division_name":  "IMMORTAL",
+                                  "icon":  "/game-content/ranks/26.png"
+                              },
+                              {
+                                  "tier":  27,
+                                  "display_name":  "RADIANT",
+                                  "division_name":  "RADIANT",
+                                  "icon":  "/game-content/ranks/27.png"
+                              }
+                          ]
+}

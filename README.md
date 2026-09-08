@@ -35,7 +35,7 @@ Rust ParsedBundleSource: 流式 NDJSON → GenericEvent / MovementSample
 SemanticBuilder: 构建 rounds / combat / abilities / spike / movement enrichment
   ↓
 SQLite: events, movement_samples, players, rounds, combat_events,
-         spike_events, ability_events, shots, compact_replays, player_issues
+         spike_events, ability_events, shots, compact_replays, player_issues, user_profiles
   ↓
 CompactReplay: 每回合预编译路线/战斗/技能/Spike JSON
   ↓
@@ -79,13 +79,16 @@ LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
 - 射击 burst 合并：304 条独立 shot → ~20-30 个紧凑 burst
 - 确定性紧凑回放：每回合预编译 JSON，缓存在 SQLite
 - 个性化问题记忆：LLM 自动提取 `<coaching_issue>` 块并持久化，跨对局趋势分析
+- 个人训练画像：段位、主玩位置/特工和训练目标会作为用户偏好注入模型上下文，不会冒充录像证据
 - 连接重试：超时/连接失败/5xx 自动重试 3 次
 - 请求中止：教练生成期间可随时停止，取消信号会传递到服务端模型请求
 - API Key 仅存后端进程内存，不写入数据库
 
 ### 前端
 - 三 Tab 布局：**阵容** / **回合** / **教练**
-- 本场 10 人战绩排行、基于录像文件时间自动记录的对局日期与可编辑备注
+- 本场 10 人战绩排行：K/D、回放估算 ACS、ADR、首杀/首死、爆头率
+- 个人主页：可选段位、位置、主玩特工、训练目标，以及已绑定对局的多场趋势图
+- 本地官方名称与图片快照：29 位可玩特工头像、技能图标、段位图标和地图俯视图
 - 2D 地图查看器：SVG 画布展示玩家路线、战斗标记、Spike 图标
 - Markdown 渲染：标题/粗体/列表/代码块/表格
 - 解析阶段实时进度与停止按钮
@@ -110,7 +113,7 @@ LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
 .\scripts\start_valcoach.ps1
 ```
 
-首次运行会自动检出固定版本的 C# 解析器、应用仓库内补丁并安装前端依赖；地图元数据和俯视图已经随仓库提供，无需运行额外的 Python 脚本。
+首次运行会自动检出固定版本的 C# 解析器、应用仓库内补丁并安装前端依赖；地图元数据、俯视图、特工头像、技能与段位图标已经随仓库提供，运行时不需要访问资源 API，也无需 Python。
 
 解析器下载会自动重试三次，并自动使用正在监听的 `http://127.0.0.1:7890` 本地代理。其他代理地址可先设置 `VALCOACH_GIT_PROXY`，例如：
 
@@ -130,6 +133,7 @@ $env:VALCOACH_GIT_PROXY = 'http://127.0.0.1:7890'
 5. 在阵容页选择你扮演的玩家
 6. 切换到回合页查看 2D 地图回放
 7. 切换到教练页，配置模型后提问
+8. 打开个人主页登记训练画像，并在积累多场已绑定对局后查看趋势
 
 ### Agent 配置
 
@@ -151,6 +155,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 cd web; npm run build
 ```
 
+## 游戏内容快照
+
+`web/public/game-content/catalog.json` 记录 Riot Public Content Catalog 版本、ETag 与更新时间作为官方资源基线，并保存由 Valorant-API 规范化的 UUID、开发代号、官方英文显示名和本地资源路径。所有图片均随仓库发布，因此正常运行不依赖外网。
+
+需要跟进新版本时，可手动执行：
+
+```powershell
+.\scripts\sync_game_content.ps1
+```
+
+脚本会刷新特工、技能、地图和段位资源，同时把地图元数据指向新的本地俯视图。该脚本仅用于维护快照，不会在启动时联网执行。
+
 ## 项目结构
 
 ```
@@ -164,7 +180,7 @@ crates/
 apps/
 └─ server/          # axum HTTP 服务（auth/jobs/matches/agent）
 web/                # React/Vite 前端
-scripts/            # 一键启动与固定版本解析器安装
+scripts/            # 一键启动、固定版本解析器安装与游戏内容快照同步
 docs/               # 长期技术文档（Provider、Bundle 协议、评测与架构决策）
 ```
 
@@ -174,7 +190,8 @@ docs/               # 长期技术文档（Provider、Bundle 协议、评测与�
 |------|------|--------|
 | [michel-giehl/ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser) | C# 生产级 VALORANT 回放解析器 | MIT |
 | [yakisoba0728/vrfkit](https://github.com/yakisoba0728/vrfkit) | Rust VRF 容器解析 + 事件/checkpoint 参考 | MIT |
-| [Valorant-API](https://valorant-api.com) | 地图元数据、callout 区域、小地图坐标参数 | 公开 API |
+| [Riot Public Content Catalog](https://developer.riotgames.com/docs/valorant#content-catalog) | 官方名称与美术资源版本基线 | Riot Developer Portal |
+| [Valorant-API](https://valorant-api.com) | UUID/显示名映射、地图参数与可离线化资源索引 | 公开 API |
 
 ## 许可证
 

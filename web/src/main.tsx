@@ -28,7 +28,11 @@ type Match = {
   capabilities: Record<string, string>;
   summary: { event_count: number; movement_count: number; has_shot_related_events: boolean };
 };
-type PlayerPerformance = { player_id: string; team: string | null; agent_name: string | null; display_name: string | null; kills: number; deaths: number; damage: number; headshots: number };
+type PlayerPerformance = {
+  player_id: string; team: string | null; agent_name: string | null; display_name: string | null;
+  kills: number; deaths: number; damage: number; headshots: number; rounds_played: number;
+  combat_score: number; acs: number; adr: number; first_kills: number; first_deaths: number; headshot_percentage: number;
+};
 type MatchDetail = Match & { players: Player[]; metrics: unknown[]; scoreboard: PlayerPerformance[] };
 type CompactReplay = {
   match_id: string; player_id: string | null; map: string | null; duration_ms: number | null; player_agent: string;
@@ -47,6 +51,18 @@ type MapMeta = {
   display_name: string; map_url: string; display_icon?: string;
   x_multiplier: number; y_multiplier: number; x_scalar_to_add: number; y_scalar_to_add: number;
   callouts: { region_name: string; super_region_name: string; location: { x: number; y: number } }[];
+};
+type ContentAgent = { uuid: string; developer_name: string; display_name: string; role: string | null; icon: string; abilities: { slot: string; display_name: string; icon: string | null }[] };
+type GameContent = {
+  schema_version: number;
+  agents: ContentAgent[];
+  maps: { developer_name: string; display_name: string }[];
+  competitive_tiers: { tier: number; display_name: string; division_name: string; icon: string | null }[];
+};
+type UserProfile = { rank_name: string | null; main_role: string | null; main_agents: string[]; training_goals: string[]; goal_notes: string; updated_at: string | null };
+type MatchTrend = {
+  match_id: string; played_at: string; map: string; agent_name: string | null; won: boolean | null;
+  kills: number; deaths: number; acs: number; adr: number; first_kills: number; first_deaths: number; headshot_percentage: number;
 };
 
 const JOB_LABELS: Record<string, string> = {
@@ -68,13 +84,7 @@ const MODEL_PRESETS: Record<string, { defaultModel: string; models: string[]; ba
   "openai-compatible": { defaultModel: "", models: [], baseUrl: "", maximum: 393216 },
 };
 
-const AGENT_NAMES: Record<string, string> = {
-  AggroBot: "Gekko", Aggrobot: "Gekko", BountyHunter: "Fade", Breach: "Breach", Cable: "Deadlock", Cashew: "Tejo",
-  Clay: "Raze", Deadeye: "Chamber", Grenadier: "KAY/O", Guide: "Skye", Gumshoe: "Cypher", Hunter: "Sova",
-  Iris: "Miks", Killjoy: "Killjoy", Mage: "Harbor", Nox: "Vyse", Pandemic: "Viper", Phoenix: "Phoenix", Pine: "Veto",
-  Rift: "Astra", Sarge: "Brimstone", Sequoia: "Iso", Smonk: "Clove", Sprinter: "Neon", Stealth: "Yoru",
-  Terra: "Waylay", Thorne: "Sage", Vampire: "Reyna", Wraith: "Omen", Wushu: "Jett"
-};
+let cachedGameContent: GameContent | null = null;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
@@ -119,6 +129,8 @@ function App() {
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({ configured: false, provider: null, model: null, source: null, api_key_in_memory: false, max_output_tokens: null });
   const [agentUsage, setAgentUsage] = useState<AgentUsage | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [gameContent, setGameContent] = useState<GameContent | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
 
@@ -133,6 +145,7 @@ function App() {
   }, []);
 
   useEffect(() => { api<User>("/api/auth/me").then(setUser).catch(() => setUser(null)); }, []);
+  useEffect(() => { fetch("/game-content/catalog.json").then((response) => response.json()).then((content: GameContent) => { cachedGameContent = content; setGameContent(content); }).catch(() => { cachedGameContent = null; setGameContent(null); }); }, []);
   useEffect(() => { if (user) { refreshMatches().catch((reason) => setError(String(reason))); refreshAgentStatus().catch(() => undefined); refreshAgentUsage().catch(() => undefined); } }, [user, refreshAgentStatus, refreshAgentUsage, refreshMatches]);
   useEffect(() => {
     if (!job || ["ready", "failed", "cancelled", "unsupported"].includes(job.status)) return;
@@ -185,12 +198,77 @@ function App() {
   if (!user) return <Auth onAuthenticated={setUser} />;
   const working = !!job && !["ready", "failed", "cancelled", "unsupported"].includes(job.status);
 
-  return <main className="app-shell"><header className="topbar"><Brand compact /><div className="topbar-actions"><span className={`agent-pill ${agentStatus.configured ? "online" : ""}`}><i />{agentStatus.configured ? `${agentStatus.provider} · ${agentStatus.model}` : "教练未配置"}</span><button className="secondary icon-button" onClick={() => setSettingsOpen(true)}>模型设置</button><span className="user-chip">{user.username}</span><button className="text-button" onClick={logout}>退出</button></div></header>
+  return <main className="app-shell"><header className="topbar"><Brand compact /><div className="topbar-actions"><span className={`agent-pill ${agentStatus.configured ? "online" : ""}`}><i />{agentStatus.configured ? `${agentStatus.provider} · ${agentStatus.model}` : "教练未配置"}</span><button className={`secondary icon-button ${profileOpen ? "active" : ""}`} onClick={() => setProfileOpen((open) => !open)}>{profileOpen ? "返回对局" : "个人主页"}</button><button className="secondary icon-button" onClick={() => setSettingsOpen(true)}>模型设置</button><span className="user-chip">{user.username}</span><button className="text-button" onClick={logout}>退出</button></div></header>
+    {profileOpen ? <ProfilePage content={gameContent} /> : <>
     <section className="upload-panel"><div><span className="eyebrow">NEW REVIEW</span><h1>导入一场录像</h1><p>选择国际服或国服的 .vrf 文件。解析在本机完成。</p></div><form onSubmit={upload} className="upload-form"><label className="file-picker"><input name="replay" type="file" accept=".vrf" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} /><span className="file-icon">↥</span><span><strong>{fileName || "选择录像文件"}</strong><small>{fileName ? "点击可更换文件" : "最大 100 MiB · .vrf"}</small></span></label><button className="primary" disabled={working}>{working ? "正在处理…" : "开始分析"}</button></form>{job && <JobProgress job={job} bundle={bundle} onCancel={cancelJob} />}{error && <p className="notice error">{error}</p>}</section>
-    <section className="workspace"><aside className="match-list panel"><div className="section-heading"><div><span className="eyebrow">HISTORY</span><h2>最近对局</h2></div><span>{matches.length}</span></div>{matches.length === 0 ? <div className="empty-state"><b>暂无录像</b><p>上传完成后，对局会出现在这里。</p></div> : <ul>{matches.map((match) => <li key={match.id} className="match-item"><button className={`match-card ${detail?.id === match.id ? "active" : ""}`} onClick={() => selectMatch(match.id)}><span className="map-code">{mapDisplayName(match.metadata.map).slice(0, 2).toUpperCase()}</span><span><strong>{mapDisplayName(match.metadata.map)}</strong><small>{formatDate(match.played_at)} · {formatDuration(match.metadata.duration_ms)}</small>{match.note && <small className="match-note-preview">{match.note}</small>}</span><i>›</i></button><button className="delete-replay" title="删除录像" onClick={(event) => { event.stopPropagation(); if (confirm("删除这场录像及其所有分析数据？")) deleteMatch(match.id).catch((reason) => setError(String(reason))); }}>×</button></li>)}</ul>}</aside><article className="review-panel panel">{detail ? <MatchPanel detail={detail} onBind={bind} onSaveNote={saveNote} agentStatus={agentStatus} onUsage={refreshAgentUsage} onOpenSettings={() => setSettingsOpen(true)} /> : <div className="empty-review"><span className="target-glyph">⌖</span><h2>选择一场对局</h2><p>查看双方阵容，确认你的玩家后开始复盘。</p></div>}</article></section>
+    <section className="workspace"><aside className="match-list panel"><div className="section-heading"><div><span className="eyebrow">HISTORY</span><h2>最近对局</h2></div><span>{matches.length}</span></div>{matches.length === 0 ? <div className="empty-state"><b>暂无录像</b><p>上传完成后，对局会出现在这里。</p></div> : <ul>{matches.map((match) => <li key={match.id} className="match-item"><button className={`match-card ${detail?.id === match.id ? "active" : ""}`} onClick={() => selectMatch(match.id)}><span className="map-code">{mapDisplayName(match.metadata.map).slice(0, 2).toUpperCase()}</span><span><strong>{mapDisplayName(match.metadata.map)}</strong><small>{formatDate(match.played_at)} · {formatDuration(match.metadata.duration_ms)}</small>{match.note && <small className="match-note-preview">{match.note}</small>}</span><i>›</i></button><button className="delete-replay" title="删除录像" onClick={(event) => { event.stopPropagation(); if (confirm("删除这场录像及其所有分析数据？")) deleteMatch(match.id).catch((reason) => setError(String(reason))); }}>×</button></li>)}</ul>}</aside><article className="review-panel panel">{detail ? <MatchPanel detail={detail} content={gameContent} onBind={bind} onSaveNote={saveNote} agentStatus={agentStatus} onUsage={refreshAgentUsage} onOpenSettings={() => setSettingsOpen(true)} /> : <div className="empty-review"><span className="target-glyph">⌖</span><h2>选择一场对局</h2><p>查看双方阵容，确认你的玩家后开始复盘。</p></div>}</article></section>
+    </>}
     <footer><span>VALCOACH // LOCAL MODE</span><span>{agentUsage ? `${agentUsage.total_tokens.toLocaleString()} TOKENS${agentUsage.priced_requests ? ` · $${(agentUsage.cost_microusd / 1_000_000).toFixed(4)} EST.` : ""}` : "NO AGENT USAGE"}</span></footer>
     {settingsOpen && <SettingsModal status={agentStatus} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setAgentStatus(next); setSettingsOpen(false); }} />}
   </main>;
+}
+
+const TRAINING_GOALS = ["枪法稳定性", "减少首死", "地图控制", "技能效率", "进攻决策", "防守站位", "沟通与协同", "经济管理"];
+
+function ProfilePage({ content }: { content: GameContent | null }) {
+  const empty: UserProfile = { rank_name: null, main_role: null, main_agents: [], training_goals: [], goal_notes: "", updated_at: null };
+  const [profile, setProfile] = useState<UserProfile>(empty);
+  const [trends, setTrends] = useState<MatchTrend[]>([]);
+  const [metric, setMetric] = useState<"acs" | "adr" | "headshot_percentage">("acs");
+  const [pending, setPending] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    setPending(true);
+    Promise.all([api<UserProfile>("/api/profile"), api<MatchTrend[]>("/api/profile/trends")])
+      .then(([nextProfile, nextTrends]) => { setProfile(nextProfile); setTrends(nextTrends); })
+      .catch((reason) => setMessage(reason instanceof Error ? reason.message : "个人资料加载失败"))
+      .finally(() => setPending(false));
+  }, []);
+  const save = async (event: FormEvent) => {
+    event.preventDefault(); setSaving(true); setMessage("");
+    try {
+      const saved = await api<UserProfile>("/api/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
+      setProfile(saved); setMessage("个人画像已保存，下一次 AI 复盘会自动使用这些训练背景。");
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : "保存失败"); }
+    finally { setSaving(false); }
+  };
+  const toggleAgent = (name: string) => setProfile((current) => {
+    const selected = current.main_agents.includes(name);
+    if (!selected && current.main_agents.length >= 5) return current;
+    return { ...current, main_agents: selected ? current.main_agents.filter((agent) => agent !== name) : [...current.main_agents, name] };
+  });
+  const toggleGoal = (goal: string) => setProfile((current) => ({ ...current, training_goals: current.training_goals.includes(goal) ? current.training_goals.filter((item) => item !== goal) : [...current.training_goals, goal] }));
+  const ranks = content?.competitive_tiers.filter((tier) => !tier.display_name.startsWith("Unused")) ?? [];
+  const rank = ranks.find((tier) => tier.display_name === profile.rank_name);
+  return <section className="profile-page">
+    <header className="profile-hero"><div><span className="eyebrow">PLAYER PROFILE</span><h1>训练档案</h1><p>登记你的打法背景，查看已绑定对局的长期趋势。所有资料仅保存在本机。</p></div><div className="profile-summary">{rank?.icon && <img src={rank.icon} alt="" />}<span><strong>{profile.rank_name ?? "未设置段位"}</strong><span>{profile.main_role ?? "未设置主玩位置"}</span><small>{trends.length} 场已绑定对局</small></span></div></header>
+    {pending ? <div className="panel empty-state"><p>正在加载个人档案…</p></div> : <div className="profile-layout">
+      <form className="panel profile-form" onSubmit={save}>
+        <div className="section-heading"><div><span className="eyebrow">COACHING CONTEXT</span><h2>长期画像</h2></div></div>
+        <div className="form-row"><label>当前段位<select value={profile.rank_name ?? ""} onChange={(event) => setProfile({ ...profile, rank_name: event.target.value || null })}><option value="">暂不填写</option>{ranks.map((tier) => <option value={tier.display_name} key={tier.tier}>{tier.display_name}</option>)}</select></label><label>主玩位置<select value={profile.main_role ?? ""} onChange={(event) => setProfile({ ...profile, main_role: event.target.value || null })}><option value="">暂不填写</option>{["Duelist", "Initiator", "Controller", "Sentinel", "Flex"].map((role) => <option value={role} key={role}>{role}</option>)}</select></label></div>
+        <fieldset><legend>主玩特工 <small>最多选择 5 位</small></legend><div className="agent-picker">{content?.agents.map((agent) => <button type="button" key={agent.uuid} className={profile.main_agents.includes(agent.display_name) ? "selected" : ""} onClick={() => toggleAgent(agent.display_name)}><AgentPortrait name={agent.display_name} content={content} /><span>{agent.display_name}</span></button>) ?? <p>本地英雄资源未加载。</p>}</div>{profile.main_agents.length > 0 && <div className="selected-loadouts">{profile.main_agents.map((name) => { const agent = findContentAgent(name, content); return agent ? <article key={agent.uuid}><header><AgentPortrait name={name} content={content} /><span><strong>{agent.display_name}</strong><small>{agent.role}</small></span></header><div>{agent.abilities.filter((ability) => ability.icon).map((ability) => <span key={ability.slot} title={ability.slot}>{ability.icon && <img src={ability.icon} alt="" loading="lazy" />}<small>{ability.display_name}</small></span>)}</div></article> : null; })}</div>}</fieldset>
+        <fieldset><legend>训练目标 <small>可多选</small></legend><div className="goal-picker">{TRAINING_GOALS.map((goal) => <button type="button" key={goal} className={profile.training_goals.includes(goal) ? "selected" : ""} onClick={() => toggleGoal(goal)}>{goal}</button>)}</div></fieldset>
+        <label>补充目标<textarea value={profile.goal_notes} onChange={(event) => setProfile({ ...profile, goal_notes: event.target.value })} maxLength={1000} placeholder="例如：希望减少防守方无信息前压，优先练习 Controller。" /></label>
+        {message && <p className="notice warning">{message}</p>}<div className="profile-save"><span>{profile.updated_at ? `上次更新 ${formatDate(profile.updated_at)}` : "尚未保存画像"}</span><button className="primary" disabled={saving}>{saving ? "保存中…" : "保存画像"}</button></div>
+      </form>
+      <section className="panel trend-panel"><div className="section-heading"><div><span className="eyebrow">MATCH TRENDS</span><h2>多场趋势</h2></div></div>{trends.length ? <><div className="metric-tabs">{([['acs','ACS'],['adr','ADR'],['headshot_percentage','爆头率']] as const).map(([key, label]) => <button className={metric === key ? "active" : ""} onClick={() => setMetric(key)} key={key}>{label}</button>)}</div><TrendChart trends={trends} metric={metric} /><div className="trend-list">{[...trends].reverse().map((trend) => <article key={trend.match_id}><AgentPortrait name={trend.agent_name} content={content} /><span><strong>{trend.map} · {trend.agent_name ?? "Unknown"}</strong><small>{formatDate(trend.played_at)} · {trend.won == null ? "结果未知" : trend.won ? "胜利" : "失败"}</small></span><span><strong>{trend.kills}/{trend.deaths}</strong><small>K/D</small></span><span><strong>{trend.acs.toFixed(1)}</strong><small>ACS*</small></span><span><strong>{trend.adr.toFixed(1)}</strong><small>ADR</small></span><span><strong>{trend.headshot_percentage.toFixed(1)}%</strong><small>HS</small></span></article>)}</div><p className="metric-note">* ACS 根据回放中的伤害与击杀顺序计算；解析器未提供的非伤害助攻不计入。</p></> : <div className="empty-state"><b>还没有趋势数据</b><p>在对局中选择“这是我”后，该场数据会自动加入这里。</p></div>}</section>
+    </div>}
+  </section>;
+}
+
+function TrendChart({ trends, metric }: { trends: MatchTrend[]; metric: "acs" | "adr" | "headshot_percentage" }) {
+  const values = trends.map((trend) => trend[metric]);
+  const maximum = Math.max(...values, 1); const minimum = Math.min(...values, 0); const span = Math.max(maximum - minimum, 1);
+  const x = (index: number) => values.length === 1 ? 300 : 24 + index * 552 / (values.length - 1);
+  const y = (value: number) => 166 - ((value - minimum) / span) * 132;
+  const points = values.map((value, index) => `${x(index)},${y(value)}`).join(" ");
+  return <div className="trend-chart"><svg viewBox="0 0 600 200" role="img" aria-label={`${metric} 多场趋势`}><line x1="24" y1="166" x2="576" y2="166" className="chart-axis" /><polyline points={points} className="chart-line" />{values.map((value, index) => <g key={index}><circle cx={x(index)} cy={y(value)} r="5" className="chart-dot" /><text x={x(index)} y={Math.max(18, y(value) - 11)} textAnchor="middle">{metric === "headshot_percentage" ? `${value.toFixed(1)}%` : value.toFixed(1)}</text></g>)}</svg><div className="chart-dates"><span>{formatDate(trends[0].played_at)}</span><span>{formatDate(trends.at(-1)?.played_at)}</span></div></div>;
+}
+
+function AgentPortrait({ name, content }: { name: string | null; content: GameContent | null }) {
+  const agent = findContentAgent(name, content);
+  return agent ? <img className="agent-avatar portrait" src={agent.icon} alt="" loading="lazy" /> : <span className="agent-avatar">{(name ?? "?").slice(0, 1)}</span>;
 }
 
 function JobProgress({ job, bundle, onCancel }: { job: Job; bundle: ReplayBundle | null; onCancel: () => Promise<void> }) {
@@ -202,7 +280,7 @@ function JobProgress({ job, bundle, onCancel }: { job: Job; bundle: ReplayBundle
   return <div className={`job-progress ${job.status}`}><div className="job-line"><span className="pulse" /><strong>{JOB_LABELS[job.status] ?? job.status}</strong><span>{terminal ? "" : `${progress}%`}</span>{!terminal && <button className="danger-text cancel-job" onClick={() => onCancel().catch(() => undefined)}>停止</button>}</div>{!terminal && <div className="progress-track"><i style={{ width: `${progress}%` }} /></div>}{job.status === "ready" && bundle && <p>{mapDisplayName(bundle.replay.map_asset_path)} · {formatDuration(bundle.replay.duration_ms)} · {readyText}</p>}{job.status === "unsupported" && <p>已读取录像，但该服务器版本的完整战斗数据暂不能解析。</p>}{job.error_message && job.status === "failed" && <p>{job.error_message}</p>}</div>;
 }
 
-function MatchPanel({ detail, onBind, onSaveNote, agentStatus, onUsage, onOpenSettings }: { detail: MatchDetail; onBind: (player: Player) => Promise<void>; onSaveNote:(note:string)=>Promise<void>; agentStatus: AgentStatus; onUsage: () => Promise<void>; onOpenSettings: () => void }) {
+function MatchPanel({ detail, content, onBind, onSaveNote, agentStatus, onUsage, onOpenSettings }: { detail: MatchDetail; content: GameContent | null; onBind: (player: Player) => Promise<void>; onSaveNote:(note:string)=>Promise<void>; agentStatus: AgentStatus; onUsage: () => Promise<void>; onOpenSettings: () => void }) {
   const [binding, setBinding] = useState<string | null>(null);
   const [tab, setTab] = useState<"roster" | "rounds" | "coach">("roster");
   const [compact, setCompact] = useState<CompactReplay | null>(null);
@@ -219,17 +297,17 @@ function MatchPanel({ detail, onBind, onSaveNote, agentStatus, onUsage, onOpenSe
   useEffect(() => { api<MapMeta[]>("/api/maps").then(setMaps).catch(() => setMaps([])); }, []);
   const mapMeta = maps.find((m) => m.map_url === detail.metadata.map || mapInternalName(m.map_url) === mapInternalName(detail.metadata.map));
   return <><div className="review-heading"><div><span className="eyebrow">MATCH REVIEW</span><h1>{mapDisplayName(detail.metadata.map)}</h1><p>{formatDate(detail.played_at)} · {formatDuration(detail.metadata.duration_ms)} · {detail.metadata.replay_id.slice(0, 13)}</p></div><span className="ready-badge"><i />数据就绪</span></div>
-    <section className="scoreboard"><header><div><span className="eyebrow">SCOREBOARD</span><h2>本场战绩排行</h2></div></header><div className="scoreboard-grid">{detail.scoreboard.map((row,index)=><div className={`score-row ${row.team ?? ""}`} key={row.player_id}><b>{index+1}</b><span><strong>{displayAgent(row.agent_name)}</strong><small>{row.display_name ?? (detail.players.find(p=>p.id===row.player_id)?.is_bound ? "你" : row.team === "team_a" ? "A 队" : "B 队")}</small></span><span><strong>{row.kills} / {row.deaths}</strong><small>K / D</small></span><span><strong>{row.damage.toFixed(2)}</strong><small>伤害</small></span></div>)}</div></section>
+    <section className="scoreboard"><header><div><span className="eyebrow">SCOREBOARD</span><h2>本场战绩排行</h2></div></header><div className="scoreboard-scroll"><div className="scoreboard-grid"><div className="score-head"><span>#</span><span>玩家</span><span>K / D</span><span>ACS*</span><span>ADR</span><span>首杀 / 首死</span><span>爆头率</span></div>{detail.scoreboard.map((row,index)=><div className={`score-row ${row.team ?? ""}`} key={row.player_id}><b>{index+1}</b><span className="score-player"><AgentPortrait name={row.agent_name} content={content} /><span><strong>{displayAgent(row.agent_name, content)}</strong><small>{row.display_name ?? (detail.players.find(p=>p.id===row.player_id)?.is_bound ? "你" : row.team === "team_a" ? "A 队" : "B 队")}</small></span></span><span><strong>{row.kills} / {row.deaths}</strong><small>K / D</small></span><span><strong>{row.acs.toFixed(1)}</strong><small>ACS*</small></span><span><strong>{row.adr.toFixed(1)}</strong><small>ADR</small></span><span><strong>{row.first_kills} / {row.first_deaths}</strong><small>FK / FD</small></span><span><strong>{row.headshot_percentage.toFixed(1)}%</strong><small>HS</small></span></div>)}</div></div><p className="metric-note">* ACS 为回放估算值；不包含解析器未提供的非伤害助攻。</p></section>
     <form className="match-note" onSubmit={async e=>{e.preventDefault();setSavingNote(true);try{await onSaveNote(note)}finally{setSavingNote(false)}}}><label>对局备注<input value={note} onChange={e=>setNote(e.target.value)} maxLength={1000} placeholder="例如：排位练习、重点复盘 B 点防守" /></label><button className="secondary" disabled={savingNote || note===detail.note}>{savingNote?"保存中…":"保存备注"}</button></form>
     <nav className="tab-bar">{(["roster", "rounds", "coach"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t === "roster" ? "阵容" : t === "rounds" ? "回合" : "教练"}</button>)}</nav>
-    {tab === "roster" && <section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name)}</span>}</div>{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} binding={binding} onChoose={choose} /></div>}</section>}
+    {tab === "roster" && <section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name, content)}</span>}</div>{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} content={content} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} content={content} binding={binding} onChoose={choose} /></div>}</section>}
     {tab === "rounds" && (mapMeta ? <MapViewer compact={compact} mapMeta={mapMeta} /> : <div className="empty-state"><p>{maps.length === 0 ? "内置地图数据未加载，请确认从项目根目录启动。" : `未找到匹配的地图元数据。当前录像地图: ${detail.metadata.map}`}</p></div>)}
     {tab === "coach" && <CoachPanel matchId={detail.id} status={agentStatus} playerSelected={!!boundPlayer} onUsage={onUsage} onOpenSettings={onOpenSettings} />}
   </>;
 }
 
-function TeamRoster({ title, tone, players, binding, onChoose }: { title: string; tone: "red" | "blue"; players: Player[]; binding: string | null; onChoose: (player: Player) => Promise<void> }) {
-  return <section className={`team team-${tone}`}><header><span>{title}</span><small>5 PLAYERS</small></header><div>{players.map((player, index) => { const agent = displayAgent(player.agent_name); return <button key={player.id} className={`player-card ${player.is_bound ? "selected" : ""}`} onClick={() => onChoose(player)} disabled={binding !== null}><span className="agent-avatar">{agent.slice(0, 1)}</span><span><strong>{agent}</strong><small>玩家 {index + 1}</small></span><b>{binding === player.id ? "保存中" : player.is_bound ? "再次点击取消" : "这是我"}</b></button>; })}</div></section>;
+function TeamRoster({ title, tone, players, content, binding, onChoose }: { title: string; tone: "red" | "blue"; players: Player[]; content: GameContent | null; binding: string | null; onChoose: (player: Player) => Promise<void> }) {
+  return <section className={`team team-${tone}`}><header><span>{title}</span><small>5 PLAYERS</small></header><div>{players.map((player, index) => { const agent = displayAgent(player.agent_name, content); return <button key={player.id} className={`player-card ${player.is_bound ? "selected" : ""}`} onClick={() => onChoose(player)} disabled={binding !== null}><AgentPortrait name={player.agent_name} content={content} /><span><strong>{agent}</strong><small>玩家 {index + 1}</small></span><b>{binding === player.id ? "保存中" : player.is_bound ? "再次点击取消" : "这是我"}</b></button>; })}</div></section>;
 }
 
 function CoachPanel({ matchId, status, playerSelected, onUsage, onOpenSettings }: { matchId: string; status: AgentStatus; playerSelected: boolean; onUsage: () => Promise<void>; onOpenSettings: () => void }) {
@@ -285,7 +363,7 @@ function MapViewer({ compact, mapMeta }: { compact: CompactReplay | null; mapMet
   });
   const worldPoint = (position: {x:number;y:number}) => ({ x:(position.y*mapMeta.x_multiplier+mapMeta.x_scalar_to_add)*1024, y:(position.x*mapMeta.y_multiplier+mapMeta.y_scalar_to_add)*1024 });
   const findCallout = (name?: string) => name ? callouts.find((callout) => calloutDisplayName(callout) === name || callout.region_name === name) : undefined;
-  const mapImage = mapMeta.display_icon ?? `/maps/${mapMeta.display_name.toLowerCase()}.png`;
+  const mapImage = mapMeta.display_icon ?? "";
   return <section className="map-viewer">
     <div className="map-canvas-wrap">
       {compact && <div className="map-round-selector">
@@ -368,12 +446,12 @@ function mapInternalName(path: string | null | undefined) { return path?.split("
 function mapDisplayName(path: string | null | undefined) {
   const internal = path?.split("/").filter(Boolean).at(-1);
   if (!internal) return "未知地图";
-  const names: Record<string, string> = { Bonsai: "Split", Ascent: "Ascent", Duality: "Bind", Triad: "Haven", Juliett: "Sunset", Jam: "Lotus", Pitt: "Pearl", Canyon: "Fracture", Foxtrot: "Breeze", Port: "Icebox", Infinity: "Abyss", Rook: "Corrode", Plummet: "Summit" };
-  return names[internal] ?? internal;
+  return cachedGameContent?.maps.find((map) => map.developer_name.toLowerCase() === internal.toLowerCase())?.display_name ?? internal;
 }
 function formatDuration(milliseconds: number | null | undefined) { if (!milliseconds) return "时长未知"; const minutes = Math.floor(milliseconds / 60_000); const seconds = Math.floor((milliseconds % 60_000) / 1_000); return `${minutes}:${seconds.toString().padStart(2, "0")}`; }
 function formatDate(value: string | null | undefined) { if (!value) return "日期未知"; const date = new Date(value.endsWith("Z") ? value : `${value.replace(" ", "T")}Z`); return Number.isNaN(date.getTime()) ? value.slice(0,10) : date.toLocaleDateString("zh-CN"); }
-function displayAgent(codename: string | null) { if (!codename) return "未知特工"; return AGENT_NAMES[codename] ?? codename; }
+function findContentAgent(name: string | null, content: GameContent | null = cachedGameContent) { if (!name) return undefined; return content?.agents.find((agent) => agent.display_name.toLowerCase() === name.toLowerCase() || agent.developer_name.toLowerCase() === name.toLowerCase()); }
+function displayAgent(codename: string | null, content: GameContent | null = cachedGameContent) { if (!codename) return "Unknown"; return findContentAgent(codename, content)?.display_name ?? codename; }
 function displayAgentFromCodename(codename: string | null) { return displayAgent(codename); }
 function calloutDisplayName(callout: MapMeta["callouts"][number]) {
   const parent = callout.super_region_name.trim();

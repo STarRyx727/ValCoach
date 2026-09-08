@@ -2,6 +2,7 @@ mod agent;
 mod auth;
 mod jobs;
 mod matches;
+mod profile;
 
 use std::net::SocketAddr;
 
@@ -73,6 +74,11 @@ fn app(state: AppState) -> Router {
             get(matches::get_compact_replay),
         )
         .route("/api/maps", get(matches::list_maps))
+        .route(
+            "/api/profile",
+            get(profile::get_profile).put(profile::update_profile),
+        )
+        .route("/api/profile/trends", get(profile::trends))
         .route("/api/issues", get(agent::list_issues))
         .route("/api/matches/{id}/coach", post(agent::coach_match))
         .route("/api/matches/{id}/coach/cancel", post(agent::cancel_coach))
@@ -203,6 +209,42 @@ mod tests {
         assert!(body.contains(r#""configured":true"#));
         assert!(body.contains(r#""api_key_in_memory":true"#));
         assert!(!body.contains("secret-that-must-not-leak"));
+
+        let update_profile = Request::builder()
+            .method("PUT")
+            .uri("/api/profile")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .body(Body::from(
+                r#"{"rank_name":"GOLD 2","main_role":"Controller","main_agents":["Viper","Omen"],"training_goals":["地图控制"],"goal_notes":"减少无信息前压"}"#,
+            ))
+            .expect("profile request");
+        let response = application
+            .clone()
+            .oneshot(update_profile)
+            .await
+            .expect("profile response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("profile response body")
+            .to_bytes();
+        let body = std::str::from_utf8(&body).expect("profile JSON body");
+        assert!(body.contains(r#""main_agents":["Viper","Omen"]"#));
+
+        let trends = Request::builder()
+            .uri("/api/profile/trends")
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .expect("trends request");
+        let response = application
+            .clone()
+            .oneshot(trends)
+            .await
+            .expect("trends response");
+        assert_eq!(response.status(), StatusCode::OK);
 
         let clear_agent = Request::builder()
             .method("DELETE")

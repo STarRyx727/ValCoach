@@ -75,6 +75,51 @@ pub struct PlayerPerformanceRecord {
     pub deaths: i64,
     pub damage: f64,
     pub headshots: i64,
+    pub rounds_played: i64,
+    pub combat_score: f64,
+    pub acs: f64,
+    pub adr: f64,
+    pub first_kills: i64,
+    pub first_deaths: i64,
+    pub headshot_percentage: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserProfileRecord {
+    pub rank_name: Option<String>,
+    pub main_role: Option<String>,
+    pub main_agents: Vec<String>,
+    pub training_goals: Vec<String>,
+    pub goal_notes: String,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MatchTrendRecord {
+    pub match_id: String,
+    pub played_at: String,
+    pub map: String,
+    pub agent_name: Option<String>,
+    pub won: Option<bool>,
+    pub kills: i64,
+    pub deaths: i64,
+    pub acs: f64,
+    pub adr: f64,
+    pub first_kills: i64,
+    pub first_deaths: i64,
+    pub headshot_percentage: f64,
+}
+
+#[derive(Debug, Default)]
+struct PerformanceAccumulator {
+    kills: i64,
+    deaths: i64,
+    damage: f64,
+    headshots: i64,
+    hits: i64,
+    combat_score: f64,
+    first_kills: i64,
+    first_deaths: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -979,31 +1024,261 @@ impl Database {
         user_id: &str,
         match_id: &str,
     ) -> Result<Vec<PlayerPerformanceRecord>, DatabaseError> {
-        let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, i64, i64, f64, i64)>(
-            r#"SELECT p.id, p.team, p.agent_name, p.display_name,
-                COALESCE(SUM(CASE WHEN e.kind = 'kill' AND e.attacker_player_id = p.id THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN e.kind = 'kill' AND e.victim_player_id = p.id THEN 1 ELSE 0 END), 0),
-                TOTAL(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id THEN e.damage ELSE 0.0 END),
-                COALESCE(SUM(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id AND lower(e.hit_region) LIKE '%head%' THEN 1 ELSE 0 END), 0)
+        let players =
+            sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>)>(
+                r#"SELECT p.id, p.team, p.agent_name, p.display_name
                FROM players p JOIN matches m ON m.id = p.match_id
-               LEFT JOIN combat_events e ON e.match_id = p.match_id AND (e.attacker_player_id = p.id OR e.victim_player_id = p.id)
                WHERE p.match_id = ? AND m.user_id = ? AND p.team IN ('team_a','team_b')
-               GROUP BY p.id, p.team, p.agent_name, p.display_name
-               ORDER BY 5 DESC, 7 DESC, p.player_slot"#,
-        ).bind(match_id).bind(user_id).fetch_all(&self.pool).await?;
-        Ok(rows
+               ORDER BY p.team, p.player_slot, p.id"#,
+            )
+            .bind(match_id)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
+        let rounds_played: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM rounds WHERE match_id = ? AND round_no >= 1")
+                .bind(match_id)
+                .fetch_one(&self.pool)
+                .await?;
+        let events = sqlx::query_as::<
+            _,
+            (
+                Option<i64>,
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<f64>,
+                Option<String>,
+            ),
+        >(
+            r#"SELECT round_no, timestamp_ms, kind, attacker_player_id, victim_player_id,
+                      damage, hit_region
+               FROM combat_events WHERE match_id = ?
+               ORDER BY COALESCE(round_no, 0), timestamp_ms, id"#,
+        )
+        .bind(match_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut totals = players
+            .iter()
+            .map(|player| (player.0.clone(), PerformanceAccumulator::default()))
+            .collect::<HashMap<_, _>>();
+        let player_teams = players
+            .iter()
+            .filter_map(|player| Some((player.0.clone(), player.1.clone()?)))
+            .collect::<HashMap<_, _>>();
+        let mut first_kill_rounds = BTreeSet::new();
+        let mut round_team_deaths = HashMap::<(i64, String), i64>::new();
+        let mut player_round_kills = HashMap::<(i64, String), i64>::new();
+        for (round_no, _timestamp, kind, attacker, victim, damage, hit_region) in events {
+            if kind == "damage" {
+                if let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id)) {
+                    let value = damage.unwrap_or_default().max(0.0);
+                    stats.damage += value;
+                    stats.combat_score += value;
+                    if let Some(region) = hit_region.as_deref().filter(|value| !value.is_empty()) {
+                        stats.hits += 1;
+                        if region.to_ascii_lowercase().contains("head") {
+                            stats.headshots += 1;
+                        }
+                    }
+                }
+            } else if kind == "kill" {
+                if let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id)) {
+                    stats.kills += 1;
+                }
+                if let Some(stats) = victim.as_ref().and_then(|id| totals.get_mut(id)) {
+                    stats.deaths += 1;
+                }
+                if let Some(round_no) = round_no {
+                    if first_kill_rounds.insert(round_no) {
+                        if let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id)) {
+                            stats.first_kills += 1;
+                        }
+                        if let Some(stats) = victim.as_ref().and_then(|id| totals.get_mut(id)) {
+                            stats.first_deaths += 1;
+                        }
+                    }
+                    let victim_team = victim
+                        .as_ref()
+                        .and_then(|player| player_teams.get(player))
+                        .cloned();
+                    let prior_enemy_deaths = victim_team
+                        .as_ref()
+                        .and_then(|team| round_team_deaths.get(&(round_no, team.clone())))
+                        .copied()
+                        .unwrap_or_default();
+                    let kill_value = (150 - 20 * prior_enemy_deaths).max(70) as f64;
+                    if let Some(attacker) = attacker {
+                        let key = (round_no, attacker.clone());
+                        let prior_player_kills = *player_round_kills.get(&key).unwrap_or(&0);
+                        if let Some(stats) = totals.get_mut(&attacker) {
+                            stats.combat_score += kill_value + 50.0 * prior_player_kills as f64;
+                        }
+                        *player_round_kills.entry(key).or_default() += 1;
+                    }
+                    if let Some(victim_team) = victim_team {
+                        *round_team_deaths
+                            .entry((round_no, victim_team))
+                            .or_default() += 1;
+                    }
+                }
+            }
+        }
+
+        let divisor = rounds_played.max(1) as f64;
+        let mut scoreboard = players
             .into_iter()
-            .map(|r| PlayerPerformanceRecord {
-                player_id: r.0,
-                team: r.1,
-                agent_name: r.2,
-                display_name: r.3,
-                kills: r.4,
-                deaths: r.5,
-                damage: r.6,
-                headshots: r.7,
+            .map(|(player_id, team, agent_name, display_name)| {
+                let stats = totals.remove(&player_id).unwrap_or_default();
+                PlayerPerformanceRecord {
+                    player_id,
+                    team,
+                    agent_name,
+                    display_name,
+                    kills: stats.kills,
+                    deaths: stats.deaths,
+                    damage: stats.damage,
+                    headshots: stats.headshots,
+                    rounds_played,
+                    combat_score: stats.combat_score,
+                    acs: stats.combat_score / divisor,
+                    adr: stats.damage / divisor,
+                    first_kills: stats.first_kills,
+                    first_deaths: stats.first_deaths,
+                    headshot_percentage: if stats.hits == 0 {
+                        0.0
+                    } else {
+                        stats.headshots as f64 * 100.0 / stats.hits as f64
+                    },
+                }
             })
-            .collect())
+            .collect::<Vec<_>>();
+        scoreboard.sort_by(|left, right| {
+            right
+                .acs
+                .partial_cmp(&left.acs)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| right.kills.cmp(&left.kills))
+        });
+        Ok(scoreboard)
+    }
+
+    pub async fn user_profile(&self, user_id: &str) -> Result<UserProfileRecord, DatabaseError> {
+        let row = sqlx::query_as::<
+            _,
+            (
+                Option<String>,
+                Option<String>,
+                String,
+                String,
+                String,
+                String,
+            ),
+        >(
+            r#"SELECT rank_name, main_role, main_agents_json, training_goals_json,
+                      goal_notes, updated_at
+               FROM user_profiles WHERE user_id = ?"#,
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(UserProfileRecord::default());
+        };
+        Ok(UserProfileRecord {
+            rank_name: row.0,
+            main_role: row.1,
+            main_agents: serde_json::from_str(&row.2).unwrap_or_default(),
+            training_goals: serde_json::from_str(&row.3).unwrap_or_default(),
+            goal_notes: row.4,
+            updated_at: Some(row.5),
+        })
+    }
+
+    pub async fn upsert_user_profile(
+        &self,
+        user_id: &str,
+        profile: &UserProfileRecord,
+    ) -> Result<UserProfileRecord, DatabaseError> {
+        sqlx::query(
+            r#"INSERT INTO user_profiles
+               (user_id, rank_name, main_role, main_agents_json, training_goals_json, goal_notes)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 rank_name = excluded.rank_name,
+                 main_role = excluded.main_role,
+                 main_agents_json = excluded.main_agents_json,
+                 training_goals_json = excluded.training_goals_json,
+                 goal_notes = excluded.goal_notes,
+                 updated_at = CURRENT_TIMESTAMP"#,
+        )
+        .bind(user_id)
+        .bind(&profile.rank_name)
+        .bind(&profile.main_role)
+        .bind(serde_json::to_string(&profile.main_agents)?)
+        .bind(serde_json::to_string(&profile.training_goals)?)
+        .bind(&profile.goal_notes)
+        .execute(&self.pool)
+        .await?;
+        self.user_profile(user_id).await
+    }
+
+    pub async fn match_trends_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<MatchTrendRecord>, DatabaseError> {
+        let mut matches = self.list_matches_for_user(user_id).await?;
+        matches.reverse();
+        let mut trends = Vec::new();
+        for replay in matches {
+            let Some(player_id) = self
+                .find_bound_player_for_match(user_id, &replay.id)
+                .await?
+            else {
+                continue;
+            };
+            let Some(stats) = self
+                .scoreboard_for_match_for_user(user_id, &replay.id)
+                .await?
+                .into_iter()
+                .find(|stats| stats.player_id == player_id)
+            else {
+                continue;
+            };
+            let (wins, decided): (i64, i64) = sqlx::query_as(
+                r#"SELECT COALESCE(SUM(CASE WHEN winner_team = ? THEN 1 ELSE 0 END), 0),
+                          COUNT(winner_team)
+                   FROM rounds WHERE match_id = ?"#,
+            )
+            .bind(stats.team.as_deref().unwrap_or(""))
+            .bind(&replay.id)
+            .fetch_one(&self.pool)
+            .await?;
+            trends.push(MatchTrendRecord {
+                match_id: replay.id,
+                played_at: replay.played_at,
+                map: replay
+                    .metadata
+                    .map
+                    .as_deref()
+                    .map(domain_map_display_name)
+                    .unwrap_or("Unknown")
+                    .to_owned(),
+                agent_name: stats.agent_name,
+                won: (decided > 0).then_some(wins * 2 > decided),
+                kills: stats.kills,
+                deaths: stats.deaths,
+                acs: stats.acs,
+                adr: stats.adr,
+                first_kills: stats.first_kills,
+                first_deaths: stats.first_deaths,
+                headshot_percentage: stats.headshot_percentage,
+            });
+        }
+        Ok(trends)
     }
 
     pub async fn delete_match_for_user(
@@ -2761,7 +3036,7 @@ mod tests {
         ParsedBundle, ParsedReplay, ParsedReplaySummary, ReplayCapabilities, ReplayMetadata,
     };
 
-    use super::{AgentTokenUsage, Database, ReplayRoster, UserRecord};
+    use super::{AgentTokenUsage, Database, ReplayRoster, UserProfileRecord, UserRecord};
 
     #[test]
     fn replay_roster_collapses_respawns_into_two_five_player_teams() {
@@ -2881,6 +3156,30 @@ mod tests {
             .expect("scoreboard without combat events");
         assert_eq!(scoreboard.len(), 10);
         assert!(scoreboard.iter().all(|row| row.damage == 0.0));
+
+        let saved_profile = database
+            .upsert_user_profile(
+                "user-1",
+                &UserProfileRecord {
+                    rank_name: Some("GOLD 2".to_owned()),
+                    main_role: Some("Controller".to_owned()),
+                    main_agents: vec!["Viper".to_owned(), "Omen".to_owned()],
+                    training_goals: vec!["地图控制".to_owned()],
+                    goal_notes: "减少无信息前压".to_owned(),
+                    updated_at: None,
+                },
+            )
+            .await
+            .expect("save profile");
+        assert_eq!(saved_profile.rank_name.as_deref(), Some("GOLD 2"));
+        assert_eq!(
+            database
+                .user_profile("user-1")
+                .await
+                .expect("load profile")
+                .main_agents,
+            vec!["Viper", "Omen"]
+        );
 
         database
             .insert_agent_exchange(

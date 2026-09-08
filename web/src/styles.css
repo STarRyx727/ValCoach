@@ -132,6 +132,7 @@ p { color: #b7c0cb; line-height: 1.7; }
 .player-card > b { margin-left: auto; color: #b8c3cd; font-size: .76rem; white-space: nowrap; }
 .player-card.selected > b { color: var(--green); }
 .agent-avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; background: #222d3a; color: white; font: 700 1.1rem Impact, sans-serif; clip-path: polygon(0 0, 80% 0, 100% 20%, 100% 100%, 20% 100%, 0 80%); }
+.agent-avatar.portrait { object-fit: cover; object-position: top center; background: linear-gradient(145deg, #263546, #101720); }
 
 .coach-section { margin-top: 30px; border-top: 1px solid var(--line); }
 .coach-gate { margin-top: 18px; padding: 20px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #151d27; border: 1px dashed #3b4654; }
@@ -277,25 +278,86 @@ footer { padding: 24px 4px 0; display: flex; justify-content: space-between; gap
 
 .scoreboard { margin: 22px 0 14px; padding: 18px; background: #101923; border: 1px solid var(--line); }
 .scoreboard header h2 { margin: 3px 0 14px; font-size: 1.2rem; }
-.scoreboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
-.score-row { display: grid; grid-template-columns: 28px minmax(110px,1fr) 72px 86px; align-items: center; gap: 10px; padding: 9px 10px; background: #151f2a; border-left: 3px solid #657180; }
+.scoreboard-scroll { overflow-x: auto; }
+.scoreboard-grid { min-width: 760px; display: grid; gap: 5px; }
+.score-head, .score-row { display: grid; grid-template-columns: 28px minmax(180px,1fr) 70px 70px 70px 96px 76px; align-items: center; gap: 10px; }
+.score-head { padding: 0 10px 7px; color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.score-row { padding: 8px 10px; background: #151f2a; border-left: 3px solid #657180; }
 .score-row.team_a { border-left-color: var(--red); }
 .score-row.team_b { border-left-color: #53bce8; }
 .score-row > b { color: var(--muted); font-size: .8rem; }
 .score-row span { min-width: 0; }
 .score-row span strong, .score-row span small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .score-row span small { color: var(--muted); font-size: .68rem; text-transform: uppercase; }
+.score-player { display: flex; align-items: center; gap: 9px; }
+.score-player > span { min-width: 0; }
+.metric-note { margin: 9px 0 0; color: var(--muted); font-size: .72rem; }
 .match-note { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 18px; }
 .match-note label { flex: 1; }
 .match-note input { width: 100%; }
 .match-note-preview { max-width: 185px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c5d1 !important; }
 .coach-submit { display: flex; justify-content: flex-end; align-items: center; gap: 16px; }
 
-@media (max-width: 900px) {
-  .scoreboard-grid { grid-template-columns: 1fr; }
+@media (max-width: 520px) {
+  .match-note { align-items: stretch; flex-direction: column; }
 }
 
-@media (max-width: 520px) {
-  .score-row { grid-template-columns: 22px minmax(90px,1fr) 58px 72px; gap: 6px; }
-  .match-note { align-items: stretch; flex-direction: column; }
+.profile-page { padding: 30px 0 10px; }
+.profile-hero { margin-bottom: 20px; padding: clamp(26px, 5vw, 52px); display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; background: linear-gradient(120deg, #182432, #0d141d); border: 1px solid #354252; clip-path: var(--cut); }
+.profile-hero h1 { margin: 0 0 8px; font: 700 clamp(2.5rem, 5vw, 4.8rem)/.95 "Arial Narrow", Impact, sans-serif; letter-spacing: .015em; }
+.profile-hero p { max-width: 620px; margin: 0; }
+.profile-summary { min-width: 210px; padding: 16px 18px; display: flex; align-items: center; gap: 12px; background: rgba(6,11,17,.62); border-left: 3px solid var(--red); }
+.profile-summary > img { width: 50px; height: 50px; object-fit: contain; }
+.profile-summary > span { display: grid; gap: 3px; }
+.profile-summary strong { font-size: 1.15rem; }
+.profile-summary span, .profile-summary small { color: var(--muted); }
+.profile-layout { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(380px, .92fr); gap: 20px; align-items: start; }
+.profile-form, .trend-panel { padding: clamp(20px, 3vw, 30px); }
+.profile-form { display: grid; gap: 22px; }
+.profile-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.profile-form legend { margin-bottom: 10px; color: #b9c3cd; font-size: .86rem; }
+.profile-form legend small { margin-left: 7px; color: var(--muted); }
+.agent-picker { max-height: 316px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 7px; }
+.agent-picker button { min-width: 0; padding: 7px 8px; display: flex; align-items: center; gap: 7px; color: #cbd3dc; background: #151f2a; border: 1px solid transparent; text-align: left; }
+.agent-picker button:hover, .agent-picker button.selected { border-color: var(--red); }
+.agent-picker button.selected { color: white; background: rgba(255,70,85,.13); }
+.agent-picker .agent-avatar { width: 30px; height: 30px; }
+.agent-picker button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selected-loadouts { margin-top: 9px; display: grid; gap: 6px; }
+.selected-loadouts article { padding: 9px 10px; display: grid; grid-template-columns: 125px minmax(0,1fr); align-items: center; gap: 12px; background: #0c131c; border: 1px solid var(--line); }
+.selected-loadouts header { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.selected-loadouts header strong, .selected-loadouts header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selected-loadouts header small { color: var(--muted); }
+.selected-loadouts article > div { display: flex; justify-content: flex-end; gap: 9px; overflow-x: auto; }
+.selected-loadouts article > div > span { width: 58px; flex: 0 0 auto; text-align: center; }
+.selected-loadouts img { width: 26px; height: 26px; object-fit: contain; filter: brightness(1.2); }
+.selected-loadouts article > div small { display: block; overflow: hidden; color: var(--muted); font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
+.goal-picker { display: flex; flex-wrap: wrap; gap: 7px; }
+.goal-picker button, .metric-tabs button { padding: 8px 11px; color: var(--muted); background: #151f2a; border: 1px solid var(--line); }
+.goal-picker button.selected, .metric-tabs button.active { color: white; border-color: var(--red); background: rgba(255,70,85,.13); }
+.profile-save { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.profile-save span { color: var(--muted); font-size: .76rem; }
+.metric-tabs { margin: 18px 0 8px; display: flex; gap: 6px; }
+.trend-chart { padding: 12px; background: #0b121a; border: 1px solid var(--line); }
+.trend-chart svg { width: 100%; height: auto; overflow: visible; }
+.trend-chart text { fill: #aeb9c4; font-size: 11px; }
+.chart-axis { stroke: #354252; stroke-width: 1; }
+.chart-line { fill: none; stroke: var(--red); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { fill: #0b121a; stroke: #ff7c87; stroke-width: 3; }
+.chart-dates { display: flex; justify-content: space-between; color: var(--muted); font-size: .68rem; }
+.trend-list { max-height: 420px; margin-top: 12px; overflow: auto; display: grid; gap: 6px; }
+.trend-list article { min-width: 600px; padding: 8px; display: grid; grid-template-columns: 34px minmax(160px,1fr) repeat(4, 62px); align-items: center; gap: 9px; background: #151f2a; }
+.trend-list > article > span strong, .trend-list > article > span small { display: block; }
+.trend-list > article > span small { color: var(--muted); font-size: .65rem; }
+.trend-list { overflow-x: auto; }
+
+@media (max-width: 1000px) {
+  .profile-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 650px) {
+  .profile-hero { align-items: stretch; flex-direction: column; }
+  .profile-summary { min-width: 0; }
+  .profile-save { align-items: stretch; flex-direction: column; }
+  .selected-loadouts article { grid-template-columns: 1fr; }
+  .selected-loadouts article > div { justify-content: flex-start; }
 }

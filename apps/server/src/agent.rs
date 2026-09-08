@@ -37,6 +37,7 @@ The "agent" field can contain replay codenames. Translate them to official Engli
 Similarly, map names must use display names: Bonsai->Split, Duality->Bind, Triad->Haven, Juliett->Sunset, Jam->Lotus, Pitt->Pearl, Canyon->Fracture, Foxtrot->Breeze, Port->Icebox, Infinity->Abyss, Rook->Corrode, Plummet->Summit.
 Weapon names in shot events may be null or use internal names; use common names (e.g. "Classic", "Vandal", "Phantom") when available.
 If personal_issues are present in the context, relate current observations to known recurring problems and mention trends.
+Treat player_profile only as user-provided preferences and training background, never as replay evidence. Tailor explanations and drills to the player's rank, main role, agents, and training goals when present. Never infer a missing profile field.
 When you identify a recurring tactical issue, add a <coaching_issue> block at the end with: issue_key, category, title, description, map, side, area, severity (0-1), confidence (0-1).
 Answer in the language used by the player. Be concise and actionable. Use markdown formatting (headers, bold, lists) for readability."#;
 
@@ -225,6 +226,7 @@ impl AgentService {
             .list_player_issues(user_id)
             .await
             .unwrap_or_default();
+        let player_profile = self.database.user_profile(user_id).await?;
         let semantic_context = if let Some(player_id) = selected_player.as_deref() {
             let semantic = self
                 .database
@@ -264,6 +266,7 @@ impl AgentService {
             "deterministic_metrics": selected_metrics,
             "semantic_replay": semantic_context,
             "personal_issues": personal_issues,
+            "player_profile": player_profile,
             "limitations": limitations,
         });
         let previous = self
@@ -1300,7 +1303,7 @@ mod tests {
     use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::post};
     use http_body_util::BodyExt;
     use serde_json::json;
-    use valcoach_db::{Database, UserRecord};
+    use valcoach_db::{Database, UserProfileRecord, UserRecord};
     use valcoach_domain::{
         CapabilityLevel, ParsedBundle, ParsedReplay, ParsedReplaySummary, ReplayCapabilities,
         ReplayMetadata,
@@ -1422,6 +1425,9 @@ mod tests {
                 assert_eq!(body["store"], false);
                 assert_eq!(body["truncation"], "auto");
                 assert!(body["input"].as_str().is_some_and(|text| text.contains("match-1")));
+                assert!(body["input"].as_str().is_some_and(|text| {
+                    text.contains("player_profile") && text.contains("GOLD 2")
+                }));
                 Json(json!({
                     "id":"resp-mock",
                     "output":[{"content":[{"type":"output_text","text":"Only observed evidence is used."}]}],
@@ -1469,6 +1475,20 @@ mod tests {
             )
             .await
             .expect("match");
+        database
+            .upsert_user_profile(
+                "user-1",
+                &UserProfileRecord {
+                    rank_name: Some("GOLD 2".to_owned()),
+                    main_role: Some("Controller".to_owned()),
+                    main_agents: vec!["Viper".to_owned()],
+                    training_goals: vec!["地图控制".to_owned()],
+                    goal_notes: String::new(),
+                    updated_at: None,
+                },
+            )
+            .await
+            .expect("profile");
         let service = AgentService::disabled(database.clone());
         let status = service
             .configure_for(
