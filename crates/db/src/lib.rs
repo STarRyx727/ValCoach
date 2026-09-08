@@ -983,7 +983,7 @@ impl Database {
             r#"SELECT p.id, p.team, p.agent_name, p.display_name,
                 COALESCE(SUM(CASE WHEN e.kind = 'kill' AND e.attacker_player_id = p.id THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN e.kind = 'kill' AND e.victim_player_id = p.id THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id THEN e.damage ELSE 0 END), 0.0),
+                TOTAL(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id THEN e.damage ELSE 0.0 END),
                 COALESCE(SUM(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id AND lower(e.hit_region) LIKE '%head%' THEN 1 ELSE 0 END), 0)
                FROM players p JOIN matches m ON m.id = p.match_id
                LEFT JOIN combat_events e ON e.match_id = p.match_id AND (e.attacker_player_id = p.id OR e.victim_player_id = p.id)
@@ -2867,6 +2867,20 @@ mod tests {
                 .await
                 .expect("match count");
         assert_eq!(count, 1);
+
+        let probe_players = (0..10)
+            .map(|index| (format!("subject-{index}"), "Sova".to_owned()))
+            .collect::<Vec<_>>();
+        database
+            .insert_probe_players("user-1", "match-1", &probe_players)
+            .await
+            .expect("probe roster");
+        let scoreboard = database
+            .scoreboard_for_match_for_user("user-1", "match-1")
+            .await
+            .expect("scoreboard without combat events");
+        assert_eq!(scoreboard.len(), 10);
+        assert!(scoreboard.iter().all(|row| row.damage == 0.0));
 
         database
             .insert_agent_exchange(
