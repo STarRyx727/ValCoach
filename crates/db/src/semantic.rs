@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -135,6 +138,8 @@ pub(super) struct SemanticBuilder {
     ability_drafts: Vec<AbilityDraft>,
     state_to_player: HashMap<u64, String>,
     pawn_to_player: HashMap<u64, String>,
+    player_teams: HashMap<String, String>,
+    switch_time_ms: Option<i64>,
     tracks: HashMap<String, Vec<TrackPoint>>,
     death_times: HashMap<(String, u32), Vec<i64>>,
     pub combat: Vec<SemanticCombat>,
@@ -158,7 +163,6 @@ impl SemanticBuilder {
         let file = tokio::fs::File::open(path).await?;
         let mut lines = BufReader::new(file).lines();
         let mut row = 0_u64;
-        let mut switch_time = None;
         while let Some(line) = lines.next_line().await? {
             row += 1;
             if line.trim().is_empty() {
@@ -196,7 +200,7 @@ impl SemanticBuilder {
                     evidence: vec![evidence],
                 });
             } else if group == "switchTeams" {
-                switch_time = Some(timestamp_ms);
+                builder.switch_time_ms = Some(timestamp_ms);
             } else if matches!(
                 group,
                 "characterDeath"
@@ -222,11 +226,6 @@ impl SemanticBuilder {
                     .get(index + 1)
                     .map(|round| round.start_ms - 1);
             }
-            let switched = switch_time.is_some_and(|time| builder.rounds[index].start_ms >= time);
-            builder.rounds[index].team_a_side =
-                if switched { "defense" } else { "attack" }.to_owned();
-            builder.rounds[index].team_b_side =
-                if switched { "attack" } else { "defense" }.to_owned();
         }
         Ok(builder)
     }
@@ -417,6 +416,11 @@ impl SemanticBuilder {
         self.state_to_player = roster.state_to_player.clone();
         self.pawn_to_player = roster.pawn_to_player.clone();
         self.diagnostics.players = roster.players.len();
+        self.player_teams = roster
+            .players
+            .iter()
+            .map(|player| (player.id.clone(), player.team.clone()))
+            .collect();
         for draft in &self.server_drafts {
             if draft.kind == "characterDeath"
                 && let (Some(round_no), Some(victim)) = (
@@ -743,6 +747,15 @@ impl SemanticBuilder {
             self.diagnostics.abilities += 1;
         }
         self.abilities.sort_by_key(|event| event.timestamp_ms);
+        let initial_team_a_side = self.infer_initial_team_a_side().unwrap_or("defense");
+        for round in &mut self.rounds {
+            let switched = self
+                .switch_time_ms
+                .is_some_and(|time| round.start_ms >= time);
+            let team_a_defends = (initial_team_a_side == "defense") ^ switched;
+            round.team_a_side = if team_a_defends { "defense" } else { "attack" }.to_owned();
+            round.team_b_side = if team_a_defends { "attack" } else { "defense" }.to_owned();
+        }
         for round in &mut self.rounds {
             let winning_side =
                 if self.spike.iter().any(|event| {
@@ -759,7 +772,49 @@ impl SemanticBuilder {
             round.winner_team = match winning_side {
                 Some(side) if round.team_a_side == side => Some("team_a".to_owned()),
                 Some(_) => Some("team_b".to_owned()),
-                None => None,
+                None => {
+                    let victims = self
+                        .combat
+                        .iter()
+                        .filter(|event| {
+                            event.round_no == Some(round.round_no) && event.kind == "kill"
+                        })
+                        .filter_map(|event| event.victim_player_id.as_ref())
+                        .collect::<HashSet<_>>();
+                    let team_a_size = self
+                        .player_teams
+                        .values()
+                        .filter(|team| team.as_str() == "team_a")
+                        .count();
+                    let team_b_size = self
+                        .player_teams
+                        .values()
+                        .filter(|team| team.as_str() == "team_b")
+                        .count();
+                    let team_a_deaths = victims
+                        .iter()
+                        .filter(|id| {
+                            self.player_teams
+                                .get(id.as_str())
+                                .is_some_and(|team| team == "team_a")
+                        })
+                        .count();
+                    let team_b_deaths = victims
+                        .iter()
+                        .filter(|id| {
+                            self.player_teams
+                                .get(id.as_str())
+                                .is_some_and(|team| team == "team_b")
+                        })
+                        .count();
+                    if team_a_size > 0 && team_a_deaths >= team_a_size {
+                        Some("team_b".to_owned())
+                    } else if team_b_size > 0 && team_b_deaths >= team_b_size {
+                        Some("team_a".to_owned())
+                    } else {
+                        None
+                    }
+                }
             };
         }
     }
@@ -884,6 +939,32 @@ impl SemanticBuilder {
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(id, _)| id)
     }
+
+    fn infer_initial_team_a_side(&self) -> Option<&'static str> {
+        let registry = self.map_registry.as_ref()?;
+        let map_path = self.map_asset_path.as_deref()?;
+        let mut votes = HashMap::<(&str, &str), usize>::new();
+        for (player_id, track) in &self.tracks {
+            let team = self.player_teams.get(player_id)?.as_str();
+            let point = track.first()?;
+            let region = registry.resolve_super_region(map_path, &point.position)?;
+            let side = if region.to_ascii_lowercase().contains("defender") {
+                "defense"
+            } else if region.to_ascii_lowercase().contains("attacker") {
+                "attack"
+            } else {
+                continue;
+            };
+            *votes.entry((team, side)).or_default() += 1;
+        }
+        let defense = votes.get(&("team_a", "defense")).copied().unwrap_or(0);
+        let attack = votes.get(&("team_a", "attack")).copied().unwrap_or(0);
+        (defense != attack).then_some(if defense > attack {
+            "defense"
+        } else {
+            "attack"
+        })
+    }
 }
 
 fn json_vector(value: Option<&Value>) -> Option<Vector3> {
@@ -988,7 +1069,9 @@ pub(super) fn resolve_area(
     {
         return Some(area);
     }
-    split_area(position).map(str::to_owned)
+    map_asset_path
+        .filter(|path| path.ends_with("/Bonsai") || *path == "Bonsai")
+        .and_then(|_| split_area(position).map(str::to_owned))
 }
 
 /// Legacy deterministic first-pass calibration for Split/Bonsai world coordinates.

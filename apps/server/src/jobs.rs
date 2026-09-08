@@ -46,6 +46,12 @@ struct JobControl {
     events: broadcast::Sender<JobEvent>,
 }
 
+struct ReplayJobInput {
+    replay_path: PathBuf,
+    source_filename: String,
+    played_at: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct JobEvent {
     pub job_id: String,
@@ -147,14 +153,28 @@ impl JobManager {
             .join(format!("{job_id}.vrf"));
         let mut saved = false;
         let mut source_filename = None;
+        let mut played_at = None;
 
         while let Some(mut field) = multipart
             .next_field()
             .await
             .map_err(|error| AuthApiError::bad_request(error.to_string()))?
         {
+            if field.name() == Some("played_at") {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| AuthApiError::bad_request(error.to_string()))?;
+                played_at = normalize_played_at(&value);
+                continue;
+            }
             if field.name() != Some("replay") {
                 continue;
+            }
+            if saved {
+                return Err(AuthApiError::bad_request(
+                    "multipart must contain exactly one replay",
+                ));
             }
             if field
                 .file_name()
@@ -199,7 +219,6 @@ impl JobManager {
                 .await
                 .map_err(|error| AuthApiError::internal(error.to_string()))?;
             saved = true;
-            break;
         }
 
         if !saved {
@@ -212,6 +231,7 @@ impl JobManager {
             job_id,
             replay_path,
             source_filename.unwrap_or_else(|| "unknown.vrf".to_owned()),
+            played_at,
         )
         .await
         .map_err(|error| AuthApiError::internal(error.to_string()))
@@ -223,6 +243,7 @@ impl JobManager {
         job_id: String,
         replay_path: PathBuf,
         source_filename: String,
+        played_at: Option<String>,
     ) -> Result<JobCreated, JobManagerError> {
         self.database
             .create_parse_job(&job_id, &user_id, self.parser_source.source_name())
@@ -245,8 +266,11 @@ impl JobManager {
                 .run(
                     task_job_id,
                     user_id,
-                    replay_path,
-                    source_filename,
+                    ReplayJobInput {
+                        replay_path,
+                        source_filename,
+                        played_at,
+                    },
                     cancel,
                     events,
                 )
@@ -309,11 +333,15 @@ impl JobManager {
         &self,
         job_id: String,
         user_id: String,
-        replay_path: PathBuf,
-        source_filename: String,
+        input: ReplayJobInput,
         cancel: CancellationToken,
         events: broadcast::Sender<JobEvent>,
     ) {
+        let ReplayJobInput {
+            replay_path,
+            source_filename,
+            played_at,
+        } = input;
         let job_directory = self.data_directory.join("jobs").join(&job_id);
         let output_directory = job_directory.join("parser-output");
         let probe_directory = job_directory.join("bundle");
@@ -528,15 +556,20 @@ impl JobManager {
             self.database
                 .insert_parsed_replay_with_records(&user_id, &match_id, &replay, cancel.clone())
                 .await?;
+            if let Some(played_at) = played_at.as_deref() {
+                self.database
+                    .update_match_played_at(&match_id, played_at)
+                    .await?;
+            }
+            let probe_players = probe.player_loadouts.iter()
+                .map(|player| (player.subject.clone(), agent_name_from_uuid(&player.character_id).to_owned()))
+                .collect::<Vec<_>>();
             let alias_full_parse = region == ReplayRegion::China
                 && replay.summary.event_count > 0;
             if region == ReplayRegion::China && !alias_full_parse {
-                let players = probe
-                    .player_loadouts
-                    .iter()
-                    .map(|player| (player.subject.clone(), agent_name_from_uuid(&player.character_id).to_owned()))
-                    .collect::<Vec<_>>();
-                self.database.insert_probe_players(&user_id, &match_id, &players).await?;
+                self.database.insert_probe_players(&user_id, &match_id, &probe_players).await?;
+            } else {
+                self.database.apply_probe_agent_names(&user_id, &match_id, &probe_players).await?;
             }
             if let Some(diagnostics) = self.database.semantic_diagnostics(&match_id).await? {
                 tokio::fs::write(
@@ -673,8 +706,31 @@ fn safe_source_filename(filename: Option<&str>) -> String {
         .to_owned()
 }
 
+fn normalize_played_at(value: &str) -> Option<String> {
+    let value = value.trim();
+    let bytes = value.as_bytes();
+    let resembles_iso_8601 = (20..=40).contains(&bytes.len())
+        && bytes.get(4) == Some(&b'-')
+        && bytes.get(7) == Some(&b'-')
+        && bytes.get(10) == Some(&b'T')
+        && value.ends_with('Z');
+    resembles_iso_8601.then(|| value.to_owned())
+}
+
 fn agent_name_from_uuid(character_id: &str) -> &str {
     match character_id.to_ascii_lowercase().as_str() {
+        "5f8d3a7f-467b-97f3-062c-13acf203c006" => "Breach",
+        "f94c3b30-42be-e959-889c-5aa313dba261" => "Raze",
+        "6f2a04ca-43e0-be17-7f36-b3908627744d" => "Skye",
+        "117ed9e3-49f3-6512-3ccf-0cada7e3823b" => "Cypher",
+        "eb93336a-449b-9c1b-0a54-a891f7921d69" => "Phoenix",
+        "707eab51-4836-f488-046a-cda6bf494859" => "Viper",
+        "41fb69c1-4189-7b37-f117-bcaf1e96f1bf" => "Astra",
+        "7f94d92c-4234-0a36-9646-3a87eb8b5c89" => "Yoru",
+        "601dbbe7-43ce-be57-2a40-4abd24953621" => "KAY/O",
+        "95b78ed7-4637-86d9-7e41-71ba8c293152" => "Harbor",
+        "cc8b64c8-4b25-4ff9-6e7f-37b4da43d235" => "Deadlock",
+        "0e38b510-41a8-5780-5e8f-568b2a4f2d6c" => "Iso",
         "bb2a4828-46eb-8cd1-e765-15848195d751" => "Neon",
         "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc" => "Reyna",
         "1dbf2edd-4729-0984-3115-daa5eed44993" => "Killjoy",
@@ -683,7 +739,16 @@ fn agent_name_from_uuid(character_id: &str) -> &str {
         "add6443a-41bd-e414-f6ad-e58d267f4e95" => "Jett",
         "320b2a48-4d9b-a075-30f1-1f93a9b638fa" => "Sova",
         "8e253930-4c05-31dd-1b6c-968525494517" => "Omen",
-        _ => "未知特工",
+        "e370fa57-4757-3604-3648-499e1f642d3f" => "Gekko",
+        "9f0d8ba9-4140-b941-57d3-a7ad57c6b417" => "Brimstone",
+        "22697a3d-45bf-8dd7-4fec-84a9e28c69d7" => "Chamber",
+        "92eeef5d-43b5-1d4a-8d03-b3927a09034b" => "Veto",
+        "1ec8eae0-4f57-4f81-61b2-60aea6954c31" => "Clove",
+        "7c8a4701-4de6-9355-b254-e09bc2a34b72" => "Miks",
+        "df1cb487-4902-002e-5c17-d28e83e78588" => "Waylay",
+        "efba5359-4016-a1e5-7626-b1ae76895940" => "Vyse",
+        "b444168c-4e35-8076-db47-ef9bf368f384" => "Tejo",
+        _ => "Unknown",
     }
 }
 
@@ -991,6 +1056,7 @@ mod tests {
                 "job-1".to_owned(),
                 fixture,
                 "global-13.05.vrf".to_owned(),
+                None,
             )
             .await
             .expect("queue fixture");
@@ -1103,6 +1169,52 @@ mod tests {
                 assert_eq!(selected_movement, 16_762);
                 assert_eq!(selected_kills, 18);
                 assert_eq!(selected_deaths, 17);
+                let winners: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM rounds WHERE match_id = ? AND winner_team IS NOT NULL",
+                )
+                .bind(&match_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("round winners");
+                assert_eq!(
+                    winners, 20,
+                    "every fixture round has a deterministic winner"
+                );
+                let selected_team: String =
+                    sqlx::query_scalar("SELECT team FROM players WHERE id = ?")
+                        .bind(&selected_player_id)
+                        .fetch_one(database.pool())
+                        .await
+                        .expect("selected team");
+                let first_side: String = if selected_team == "team_b" {
+                    sqlx::query_scalar(
+                        "SELECT team_b_side FROM rounds WHERE match_id = ? AND round_no = 1",
+                    )
+                } else {
+                    sqlx::query_scalar(
+                        "SELECT team_a_side FROM rounds WHERE match_id = ? AND round_no = 1",
+                    )
+                }
+                .bind(&match_id)
+                .fetch_one(database.pool())
+                .await
+                .expect("first side");
+                assert_eq!(first_side, "defense");
+                let spawn_rows: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM movement_samples WHERE match_id = ? AND area LIKE '%Spawn%'",
+                ).bind(&match_id).fetch_one(database.pool()).await.expect("spawn rows");
+                assert!(
+                    spawn_rows < movement_count / 2,
+                    "map resolution must not collapse into Spawn"
+                );
+                assert_eq!(
+                    database
+                        .scoreboard_for_match_for_user("user-1", &match_id)
+                        .await
+                        .expect("scoreboard")
+                        .len(),
+                    10
+                );
                 let semantic_context = database
                     .build_semantic_coaching_context(
                         "user-1",
@@ -1190,6 +1302,7 @@ mod tests {
                 "job-cn".to_owned(),
                 fixture,
                 "china-13.05.vrf".to_owned(),
+                None,
             )
             .await
             .expect("queue fixture");

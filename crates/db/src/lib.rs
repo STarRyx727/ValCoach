@@ -58,9 +58,23 @@ pub struct PlayerRecord {
 pub struct MatchRecord {
     pub id: String,
     pub parser_source: String,
+    pub note: String,
+    pub played_at: String,
     pub metadata: ReplayMetadata,
     pub capabilities: ReplayCapabilities,
     pub summary: ParsedReplaySummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlayerPerformanceRecord {
+    pub player_id: String,
+    pub team: Option<String>,
+    pub agent_name: Option<String>,
+    pub display_name: Option<String>,
+    pub kills: i64,
+    pub deaths: i64,
+    pub damage: f64,
+    pub headshots: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -775,6 +789,40 @@ impl Database {
         Ok(())
     }
 
+    /// Fill parser roster gaps from the independent VRF probe without replacing
+    /// parser-resolved player/team identities.
+    pub async fn apply_probe_agent_names(
+        &self,
+        user_id: &str,
+        match_id: &str,
+        players: &[(String, String)],
+    ) -> Result<(), DatabaseError> {
+        let owns_match = sqlx::query_scalar::<_, i64>(
+            "SELECT EXISTS(SELECT 1 FROM matches WHERE id = ? AND user_id = ?)",
+        )
+        .bind(match_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?
+            != 0;
+        if !owns_match {
+            return Err(DatabaseError::MatchNotFound);
+        }
+        for (subject, agent_name) in players {
+            if agent_name != "Unknown" {
+                sqlx::query(
+                    "UPDATE players SET agent_name = ? WHERE match_id = ? AND stable_player_id = ?",
+                )
+                .bind(agent_name)
+                .bind(match_id)
+                .bind(subject)
+                .execute(&self.pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn movement_for_player_for_user(
         &self,
         user_id: &str,
@@ -868,8 +916,8 @@ impl Database {
     ) -> Result<Vec<MatchRecord>, DatabaseError> {
         self.match_records(
             r#"
-            SELECT id, parser_source, metadata_json, capabilities_json, summary_json
-            FROM matches WHERE user_id = ? ORDER BY created_at DESC, id DESC
+            SELECT id, parser_source, note, COALESCE(played_at, created_at), metadata_json, capabilities_json, summary_json
+            FROM matches WHERE user_id = ? ORDER BY COALESCE(played_at, created_at) DESC, id DESC
             "#,
             user_id,
             None,
@@ -885,7 +933,7 @@ impl Database {
         let mut matches = self
             .match_records(
                 r#"
-                SELECT id, parser_source, metadata_json, capabilities_json, summary_json
+                SELECT id, parser_source, note, COALESCE(played_at, created_at), metadata_json, capabilities_json, summary_json
                 FROM matches WHERE user_id = ? AND id = ?
                 "#,
                 user_id,
@@ -893,6 +941,69 @@ impl Database {
             )
             .await?;
         Ok(matches.pop())
+    }
+
+    pub async fn update_match_note_for_user(
+        &self,
+        user_id: &str,
+        match_id: &str,
+        note: &str,
+    ) -> Result<(), DatabaseError> {
+        let result = sqlx::query("UPDATE matches SET note = ? WHERE id = ? AND user_id = ?")
+            .bind(note)
+            .bind(match_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DatabaseError::MatchNotFound);
+        }
+        Ok(())
+    }
+
+    pub async fn update_match_played_at(
+        &self,
+        match_id: &str,
+        played_at: &str,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query("UPDATE matches SET played_at = ? WHERE id = ?")
+            .bind(played_at)
+            .bind(match_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn scoreboard_for_match_for_user(
+        &self,
+        user_id: &str,
+        match_id: &str,
+    ) -> Result<Vec<PlayerPerformanceRecord>, DatabaseError> {
+        let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, i64, i64, f64, i64)>(
+            r#"SELECT p.id, p.team, p.agent_name, p.display_name,
+                COALESCE(SUM(CASE WHEN e.kind = 'kill' AND e.attacker_player_id = p.id THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN e.kind = 'kill' AND e.victim_player_id = p.id THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id THEN e.damage ELSE 0 END), 0.0),
+                COALESCE(SUM(CASE WHEN e.kind = 'damage' AND e.attacker_player_id = p.id AND lower(e.hit_region) LIKE '%head%' THEN 1 ELSE 0 END), 0)
+               FROM players p JOIN matches m ON m.id = p.match_id
+               LEFT JOIN combat_events e ON e.match_id = p.match_id AND (e.attacker_player_id = p.id OR e.victim_player_id = p.id)
+               WHERE p.match_id = ? AND m.user_id = ? AND p.team IN ('team_a','team_b')
+               GROUP BY p.id, p.team, p.agent_name, p.display_name
+               ORDER BY 5 DESC, 7 DESC, p.player_slot"#,
+        ).bind(match_id).bind(user_id).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| PlayerPerformanceRecord {
+                player_id: r.0,
+                team: r.1,
+                agent_name: r.2,
+                display_name: r.3,
+                kills: r.4,
+                deaths: r.5,
+                damage: r.6,
+                headshots: r.7,
+            })
+            .collect())
     }
 
     pub async fn delete_match_for_user(
@@ -1028,14 +1139,9 @@ impl Database {
             .into_iter()
             .map(|value| value as u32)
             .collect::<Vec<_>>();
-            if active.len() > 8 {
-                active = active.split_off(active.len() - 8);
-            }
             if active.is_empty() {
                 active = rounds
                     .iter()
-                    .rev()
-                    .take(8)
                     .filter_map(|round| {
                         round
                             .get("round_no")
@@ -1043,7 +1149,6 @@ impl Database {
                             .map(|value| value as u32)
                     })
                     .collect();
-                active.reverse();
             }
             active
         };
@@ -1062,7 +1167,7 @@ impl Database {
         } else {
             Vec::new()
         };
-        for round_no in selected_numbers.into_iter().take(8) {
+        for round_no in selected_numbers.into_iter().take(30) {
             let movement = self
                 .get_player_movement(match_id, player_id, round_no)
                 .await?;
@@ -1793,6 +1898,7 @@ impl Database {
         let bound_player = self.find_bound_player_for_match(user_id, match_id).await?;
         if let Some(cached) = self.get_cached_compact(match_id).await?
             && cached.get("player_id").and_then(Value::as_str) == bound_player.as_deref()
+            && cached.get("schema_version").and_then(Value::as_u64) == Some(2)
         {
             return Ok(cached);
         }
@@ -1852,6 +1958,7 @@ impl Database {
         }
 
         let compact = json!({
+            "schema_version": 2,
             "match_id": match_id,
             "player_id": bound_player,
             "map": replay.metadata.map.as_deref().map(domain_map_display_name),
@@ -2019,17 +2126,28 @@ impl Database {
         match_id: Option<&str>,
     ) -> Result<Vec<MatchRecord>, DatabaseError> {
         let mut request =
-            sqlx::query_as::<_, (String, String, String, String, String)>(query).bind(user_id);
+            sqlx::query_as::<_, (String, String, String, String, String, String, String)>(query)
+                .bind(user_id);
         if let Some(match_id) = match_id {
             request = request.bind(match_id);
         }
         let rows = request.fetch_all(&self.pool).await?;
         rows.into_iter()
             .map(
-                |(id, parser_source, metadata_json, capabilities_json, summary_json)| {
+                |(
+                    id,
+                    parser_source,
+                    note,
+                    played_at,
+                    metadata_json,
+                    capabilities_json,
+                    summary_json,
+                )| {
                     Ok(MatchRecord {
                         id,
                         parser_source,
+                        note,
+                        played_at,
                         metadata: serde_json::from_str(&metadata_json)?,
                         capabilities: serde_json::from_str(&capabilities_json)?,
                         summary: serde_json::from_str(&summary_json)?,
@@ -2227,6 +2345,7 @@ fn compact_movement_segments(movement: &[Value], round_start_ms: Option<i64>) ->
                     "end_ms": time_ms,
                     "alive": has_alive,
                     "waypoints": segment_positions.len(),
+                    "points": sampled_positions(&segment_positions, 24),
                 }));
             }
             current_area = area;
@@ -2255,9 +2374,19 @@ fn compact_movement_segments(movement: &[Value], round_start_ms: Option<i64>) ->
             "end_ms": last_time,
             "alive": has_alive,
             "waypoints": segment_positions.len(),
+            "points": sampled_positions(&segment_positions, 24),
         }));
     }
     segments
+}
+
+fn sampled_positions(positions: &[Value], maximum: usize) -> Vec<Value> {
+    if positions.len() <= maximum {
+        return positions.to_vec();
+    }
+    (0..maximum)
+        .map(|index| positions[index * (positions.len() - 1) / (maximum - 1)].clone())
+        .collect()
 }
 
 /// Summarize compacted combat events for a round.
@@ -2299,7 +2428,14 @@ fn summarize_combat(combat: &[Value], round_no: u32, round_start_ms: Option<i64>
                 summary["shots"] = shots.clone();
             }
             if let Some(damage) = e.get("damage") {
-                summary["damage"] = damage.clone();
+                summary["damage"] =
+                    json!((damage.as_f64().unwrap_or_default() * 100.0).round() / 100.0);
+            }
+            if let Some(position) = e.get("attacker_position").filter(|position| {
+                position.get("x").and_then(Value::as_f64).is_some()
+                    && position.get("y").and_then(Value::as_f64).is_some()
+            }) {
+                summary["position"] = position.clone();
             }
             if e.get("killed").and_then(Value::as_bool).unwrap_or(false) {
                 summary["result"] = json!("kill");
@@ -2315,7 +2451,7 @@ fn summarize_combat(combat: &[Value], round_no: u32, round_start_ms: Option<i64>
         "events": events,
         "totals": {
             "shots": total_shots,
-            "damage": total_damage,
+            "damage": (total_damage * 100.0).round() / 100.0,
             "kills": kills,
             "deaths": deaths,
         }

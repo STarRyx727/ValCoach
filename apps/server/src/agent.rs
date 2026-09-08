@@ -9,7 +9,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use valcoach_db::{
     AgentMessageRecord, AgentTokenUsage, AgentUsageSummary, Database, DatabaseError,
@@ -29,7 +30,7 @@ Check the capability map before making each factual claim. If a capability is pa
 Separate observed facts from coaching recommendations. Cite applicable evidence using its exact match_id, player_id, human_time, and evidence_type.
 Always use human_time (format "R8 00:26.1") when referring to timestamps. Never use raw milliseconds.
 When referring to positions, use the "area" field (e.g. "A Site", "A Main") rather than raw coordinates.
-Economy is inferred from buy-phase timing, not individual purchases; state this when discussing economy.
+Only mention a missing capability when it is directly relevant to the player's question; do not lead with generic limitations.
 Abilities include both ultimate events from server and ability-use actor spawns from the parser.
 Always use official VALORANT agent display names, never internal codenames.
 The "agent" field can contain replay codenames. Translate them to official English display names. In particular Pine is Veto, Nox is Vyse, Iris is Miks, Cashew is Tejo, Terra is Waylay, and AggroBot is Gekko.
@@ -44,6 +45,7 @@ pub struct AgentService {
     database: Database,
     default_provider: Option<Arc<LlmProvider>>,
     user_providers: Arc<RwLock<HashMap<String, Arc<LlmProvider>>>>,
+    active_requests: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
 }
 
 impl fmt::Debug for AgentService {
@@ -100,6 +102,7 @@ impl AgentService {
             database,
             default_provider,
             user_providers: Arc::new(RwLock::new(HashMap::new())),
+            active_requests: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -109,6 +112,7 @@ impl AgentService {
             database,
             default_provider: None,
             user_providers: Arc::new(RwLock::new(HashMap::new())),
+            active_requests: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -282,7 +286,22 @@ impl AgentService {
             serde_json::to_string_pretty(&conversation_history)?,
             question
         );
-        let reply = provider.complete(SYSTEM_PROMPT, &input).await?;
+        let request_key = (user_id.to_owned(), match_id.to_owned());
+        let cancel = CancellationToken::new();
+        if let Some(previous) = self
+            .active_requests
+            .lock()
+            .await
+            .insert(request_key.clone(), cancel.clone())
+        {
+            previous.cancel();
+        }
+        let reply_result = tokio::select! {
+            reply = provider.complete(SYSTEM_PROMPT, &input) => reply,
+            _ = cancel.cancelled() => Err(AgentError::Cancelled),
+        };
+        self.active_requests.lock().await.remove(&request_key);
+        let reply = reply_result?;
         let session_id = Uuid::new_v4().to_string();
         let (clean_answer, extracted_issues) = extract_coaching_issues(&reply.text);
         for issue in &extracted_issues {
@@ -329,6 +348,17 @@ impl AgentService {
             limitations,
             usage: reply.usage,
         })
+    }
+
+    pub async fn cancel(&self, user_id: &str, match_id: &str) {
+        if let Some(token) = self
+            .active_requests
+            .lock()
+            .await
+            .remove(&(user_id.to_owned(), match_id.to_owned()))
+        {
+            token.cancel();
+        }
     }
 }
 
@@ -494,7 +524,13 @@ impl LlmProvider {
         let mut reply = match self.kind {
             ProviderKind::OpenAi => self.complete_openai(instructions, input).await?,
             ProviderKind::Anthropic => self.complete_anthropic(instructions, input).await?,
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
+            ProviderKind::DeepSeek
+            | ProviderKind::Gemini
+            | ProviderKind::Xai
+            | ProviderKind::Zhipu
+            | ProviderKind::Moonshot
+            | ProviderKind::Qwen
+            | ProviderKind::OpenAiCompatible => {
                 self.complete_chat_completions(instructions, input).await?
             }
         };
@@ -725,7 +761,13 @@ fn normalize_base_url(kind: ProviderKind, base_url: &str) -> String {
     let endpoint = match kind {
         ProviderKind::OpenAi => "/responses",
         ProviderKind::Anthropic => "/messages",
-        ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => "/chat/completions",
+        ProviderKind::DeepSeek
+        | ProviderKind::Gemini
+        | ProviderKind::Xai
+        | ProviderKind::Zhipu
+        | ProviderKind::Moonshot
+        | ProviderKind::Qwen
+        | ProviderKind::OpenAiCompatible => "/chat/completions",
     };
     base_url
         .strip_suffix(endpoint)
@@ -772,6 +814,11 @@ enum ProviderKind {
     OpenAi,
     Anthropic,
     DeepSeek,
+    Gemini,
+    Xai,
+    Zhipu,
+    Moonshot,
+    Qwen,
     OpenAiCompatible,
 }
 
@@ -781,9 +828,14 @@ impl ProviderKind {
             "openai" => Ok(Self::OpenAi),
             "anthropic" | "claude" => Ok(Self::Anthropic),
             "deepseek" => Ok(Self::DeepSeek),
+            "gemini" | "google" => Ok(Self::Gemini),
+            "xai" | "grok" => Ok(Self::Xai),
+            "zhipu" | "glm" => Ok(Self::Zhipu),
+            "moonshot" | "kimi" => Ok(Self::Moonshot),
+            "qwen" | "dashscope" => Ok(Self::Qwen),
             "openai-compatible" | "openai_compatible" => Ok(Self::OpenAiCompatible),
             _ => Err(AgentError::Configuration(
-                "VALCOACH_LLM_PROVIDER must be openai, anthropic, deepseek, or openai-compatible"
+                "provider must be openai, anthropic, deepseek, gemini, xai, zhipu, moonshot, qwen, or openai-compatible"
                     .to_owned(),
             )),
         }
@@ -794,6 +846,11 @@ impl ProviderKind {
             Self::OpenAi => "openai",
             Self::Anthropic => "anthropic",
             Self::DeepSeek => "deepseek",
+            Self::Gemini => "gemini",
+            Self::Xai => "xai",
+            Self::Zhipu => "zhipu",
+            Self::Moonshot => "moonshot",
+            Self::Qwen => "qwen",
             Self::OpenAiCompatible => "openai-compatible",
         }
     }
@@ -803,6 +860,11 @@ impl ProviderKind {
             Self::OpenAi => "https://api.openai.com/v1",
             Self::Anthropic => "https://api.anthropic.com/v1",
             Self::DeepSeek => "https://api.deepseek.com",
+            Self::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
+            Self::Xai => "https://api.x.ai/v1",
+            Self::Zhipu => "https://open.bigmodel.cn/api/paas/v4",
+            Self::Moonshot => "https://api.moonshot.cn/v1",
+            Self::Qwen => "https://dashscope.aliyuncs.com/compatible-mode/v1",
             Self::OpenAiCompatible => "",
         }
     }
@@ -812,6 +874,11 @@ impl ProviderKind {
             Self::OpenAi => "OPENAI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
             Self::DeepSeek => "DEEPSEEK_API_KEY",
+            Self::Gemini => "GEMINI_API_KEY",
+            Self::Xai => "XAI_API_KEY",
+            Self::Zhipu => "ZHIPU_API_KEY",
+            Self::Moonshot => "MOONSHOT_API_KEY",
+            Self::Qwen => "DASHSCOPE_API_KEY",
             Self::OpenAiCompatible => "VALCOACH_LLM_API_KEY",
         }
     }
@@ -1037,6 +1104,8 @@ pub enum AgentError {
     Incomplete(String),
     #[error("LLM provider returned an invalid response: {0}")]
     InvalidResponse(String),
+    #[error("coaching request was cancelled")]
+    Cancelled,
     #[error(transparent)]
     Database(#[from] DatabaseError),
     #[error("failed to serialize Agent context: {0}")]
@@ -1102,6 +1171,16 @@ pub async fn coach_match(
         .map_err(agent_api_error)
 }
 
+pub async fn cancel_coach(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Path(match_id): Path<String>,
+) -> Result<StatusCode, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    state.agent.cancel(&user_id, &match_id).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn history(
     State(state): State<AppState>,
     session: tower_sessions::Session,
@@ -1148,6 +1227,7 @@ pub async fn usage(
 
 fn agent_api_error(error: AgentError) -> AuthApiError {
     match error {
+        AgentError::Cancelled => AuthApiError::bad_request("复盘请求已中止。"),
         AgentError::Disabled | AgentError::InvalidQuestion | AgentError::Configuration(_) => {
             AuthApiError::bad_request(error.to_string())
         }
@@ -1303,6 +1383,16 @@ mod tests {
             ProviderKind::parse("claude").expect("alias"),
             ProviderKind::Anthropic
         );
+        for (name, expected) in [
+            ("gemini", ProviderKind::Gemini),
+            ("grok", ProviderKind::Xai),
+            ("glm", ProviderKind::Zhipu),
+            ("kimi", ProviderKind::Moonshot),
+            ("qwen", ProviderKind::Qwen),
+        ] {
+            assert_eq!(ProviderKind::parse(name).expect("provider alias"), expected);
+            assert!(!expected.default_base_url().is_empty());
+        }
         assert_eq!(
             normalize_base_url(ProviderKind::OpenAi, "https://api.openai.com/v1/responses/"),
             "https://api.openai.com/v1"

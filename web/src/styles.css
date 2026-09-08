@@ -274,3 +274,28 @@ footer { padding: 24px 4px 0; display: flex; justify-content: space-between; gap
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+
+.scoreboard { margin: 22px 0 14px; padding: 18px; background: #101923; border: 1px solid var(--line); }
+.scoreboard header h2 { margin: 3px 0 14px; font-size: 1.2rem; }
+.scoreboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+.score-row { display: grid; grid-template-columns: 28px minmax(110px,1fr) 72px 86px; align-items: center; gap: 10px; padding: 9px 10px; background: #151f2a; border-left: 3px solid #657180; }
+.score-row.team_a { border-left-color: var(--red); }
+.score-row.team_b { border-left-color: #53bce8; }
+.score-row > b { color: var(--muted); font-size: .8rem; }
+.score-row span { min-width: 0; }
+.score-row span strong, .score-row span small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-row span small { color: var(--muted); font-size: .68rem; text-transform: uppercase; }
+.match-note { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 18px; }
+.match-note label { flex: 1; }
+.match-note input { width: 100%; }
+.match-note-preview { max-width: 185px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c5d1 !important; }
+.coach-submit { display: flex; justify-content: flex-end; align-items: center; gap: 16px; }
+
+@media (max-width: 900px) {
+  .scoreboard-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .score-row { grid-template-columns: 22px minmax(90px,1fr) 58px 72px; gap: 6px; }
+  .match-note { align-items: stretch; flex-direction: column; }
+}

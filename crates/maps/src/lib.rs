@@ -90,8 +90,16 @@ impl MapResolver {
         let (mx, my) = self.world_to_minimap(pos);
         let mut best: Option<(&str, f64)> = None;
         for (loc, region, _super) in &self.callout_index {
-            let dx = loc.x - mx;
-            let dy = loc.y - my;
+            // Valorant-API callout locations are world coordinates too. Comparing them
+            // directly with minimap coordinates made almost every sample resolve to the
+            // same spawn callout.
+            let (cx, cy) = self.world_to_minimap(&Vector3 {
+                x: loc.x,
+                y: loc.y,
+                z: 0.0,
+            });
+            let dx = cx - mx;
+            let dy = cy - my;
             let dist = dx * dx + dy * dy;
             if best.is_none_or(|(_, d)| dist < d) {
                 best = Some((region.as_str(), dist));
@@ -107,8 +115,13 @@ impl MapResolver {
         let (mx, my) = self.world_to_minimap(pos);
         let mut best: Option<(&str, f64)> = None;
         for (loc, _region, super_region) in &self.callout_index {
-            let dx = loc.x - mx;
-            let dy = loc.y - my;
+            let (cx, cy) = self.world_to_minimap(&Vector3 {
+                x: loc.x,
+                y: loc.y,
+                z: 0.0,
+            });
+            let dx = cx - mx;
+            let dy = cy - my;
             let dist = dx * dx + dy * dy;
             if best.is_none_or(|(_, d)| dist < d) {
                 best = Some((super_region.as_str(), dist));
@@ -203,6 +216,12 @@ impl MapRegistry {
             .and_then(|resolver| resolver.area_at(pos))
             .map(str::to_owned)
     }
+
+    pub fn resolve_super_region(&self, map_asset_path: &str, pos: &Vector3) -> Option<String> {
+        self.resolver_for(map_asset_path)
+            .and_then(|resolver| resolver.super_region_at(pos))
+            .map(str::to_owned)
+    }
 }
 
 #[cfg(test)]
@@ -261,9 +280,7 @@ mod tests {
             y: 2000.0,
             z: 0.0,
         };
-        // (360, 495) is closest to "A Site" at (100, 200) vs "Mid" at (300, 300)
-        let area = resolver.area_at(&pos);
-        assert!(area.is_some());
+        assert_eq!(resolver.area_at(&pos), Some("Mid"));
     }
 
     #[test]

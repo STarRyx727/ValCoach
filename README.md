@@ -18,7 +18,7 @@ ValCoach 是一个本地运行的 VALORANT 回放分析工具。用户上传 `.v
 | 前端 | React 18 + TypeScript + Vite |
 | 回放解析器 | C# / .NET 10 — `michel-giehl/ValorantReplayParser` (通过 CLI + NDJSON 接入) |
 | 容器探针 | Rust — `vrf-container` from `yakisoba0728/vrfkit` |
-| LLM 接入 | OpenAI Responses / Claude Messages / DeepSeek / OpenAI 兼容 API |
+| LLM 接入 | OpenAI Responses / Claude Messages / DeepSeek 与主流 OpenAI 兼容 API |
 | 认证 | Argon2id 密码哈希, 本地 session cookie |
 
 ## 架构
@@ -41,7 +41,8 @@ CompactReplay: 每回合预编译路线/战斗/技能/Spike JSON
   ↓
 Agent Context Builder: 按问题范围检索相关回合 + 证据
   ↓
-LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
+LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
+  → 带地图/回合/时间/证据的复盘
 ```
 
 ## 功能
@@ -72,17 +73,19 @@ LLM (DeepSeek/OpenAI/Claude) → 带地图/回合/时间/证据的复盘
 - **Movement**: round/alive/area/yaw/pitch/velocity 完整 enrichment
 
 ### 智能体
-- 多 provider 支持：OpenAI / Claude / DeepSeek / OpenAI 兼容
+- 多 provider 支持：OpenAI / Claude / DeepSeek / Gemini / xAI Grok / 智谱 GLM / Kimi / Qwen / 自定义 OpenAI 兼容接口
 - 人类可读时间格式（`R8 00:26.1`）
 - Agent 上下文自动注入 `human_time` + 区域名（非原始坐标）
 - 射击 burst 合并：304 条独立 shot → ~20-30 个紧凑 burst
 - 确定性紧凑回放：每回合预编译 JSON，缓存在 SQLite
 - 个性化问题记忆：LLM 自动提取 `<coaching_issue>` 块并持久化，跨对局趋势分析
 - 连接重试：超时/连接失败/5xx 自动重试 3 次
+- 请求中止：教练生成期间可随时停止，取消信号会传递到服务端模型请求
 - API Key 仅存后端进程内存，不写入数据库
 
 ### 前端
 - 三 Tab 布局：**阵容** / **回合** / **教练**
+- 本场 10 人战绩排行、基于录像文件时间自动记录的对局日期与可编辑备注
 - 2D 地图查看器：SVG 画布展示玩家路线、战斗标记、Spike 图标
 - Markdown 渲染：标题/粗体/列表/代码块/表格
 - 解析阶段实时进度与停止按钮
@@ -131,14 +134,14 @@ $env:VALCOACH_GIT_PROXY = 'http://127.0.0.1:7890'
 ### Agent 配置
 
 在 Web UI 的「模型设置」中配置：
-- 服务商：OpenAI / Claude / DeepSeek / OpenAI 兼容
+- 服务商：OpenAI / Claude / DeepSeek / Gemini / xAI Grok / 智谱 GLM / Kimi / Qwen / OpenAI 兼容
 - 模型 ID
 - API Key（仅存内存，不回显）
 - Base URL（兼容接口必填）
 - 最大输出 Tokens
 - 可选：每百万 Token 价格（用于成本估算）
 
-网页提供当前模型预设：OpenAI 的 GPT-6 / GPT-5.6 系列、Claude 5 / 4.6 系列、DeepSeek V4 系列；仍可自由输入兼容服务支持的模型 ID。DeepSeek 默认使用 `deepseek-v4-flash`。
+网页为各服务商提供常用模型预设，并允许自由输入服务商实际支持的模型 ID。DeepSeek 默认使用 `deepseek-v4-flash`。预设只是便捷填充；服务商变更模型名称后无需修改代码即可使用新 ID。
 
 ## 验证
 

@@ -4,7 +4,9 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
-use valcoach_db::{MatchMetricRecord, MatchRecord, PlayerRecord, ValorantAccountRecord};
+use valcoach_db::{
+    MatchMetricRecord, MatchRecord, PlayerPerformanceRecord, PlayerRecord, ValorantAccountRecord,
+};
 
 use crate::{
     AppState,
@@ -17,6 +19,7 @@ pub struct MatchDetail {
     pub replay: MatchRecord,
     pub players: Vec<PlayerRecord>,
     pub metrics: Vec<MetricView>,
+    pub scoreboard: Vec<PlayerPerformanceRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,6 +32,11 @@ pub struct MetricView {
 #[derive(Debug, Deserialize)]
 pub struct BindPlayerRequest {
     pub player_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateMatchRequest {
+    pub note: String,
 }
 
 pub async fn list_matches(
@@ -73,11 +81,39 @@ pub async fn get_match(
         .into_iter()
         .map(metric_view)
         .collect::<Result<Vec<_>, _>>()?;
+    let scoreboard = state
+        .auth
+        .database
+        .scoreboard_for_match_for_user(&user_id, &match_id)
+        .await
+        .map_err(|error| AuthApiError::internal(error.to_string()))?;
     Ok(Json(MatchDetail {
         replay,
         players,
         metrics,
+        scoreboard,
     }))
+}
+
+pub async fn update_match(
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    Path(match_id): Path<String>,
+    Json(request): Json<UpdateMatchRequest>,
+) -> Result<StatusCode, AuthApiError> {
+    let user_id = require_user_id(&state.auth, &session).await?;
+    if request.note.chars().count() > 1_000 {
+        return Err(AuthApiError::bad_request(
+            "note must be at most 1000 characters",
+        ));
+    }
+    state
+        .auth
+        .database
+        .update_match_note_for_user(&user_id, &match_id, request.note.trim())
+        .await
+        .map_err(|error| AuthApiError::internal(error.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn bind_player(

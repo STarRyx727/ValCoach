@@ -9,11 +9,15 @@ equivalent server environment fallback:
 | `openai` | Responses API | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
 | `anthropic` or `claude` | Messages API | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` |
 | `deepseek` | Chat Completions | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
+| `gemini` or `google` | OpenAI-compatible Chat Completions | `https://generativelanguage.googleapis.com/v1beta/openai` | `GEMINI_API_KEY` |
+| `xai` or `grok` | OpenAI-compatible Chat Completions | `https://api.x.ai/v1` | `XAI_API_KEY` |
+| `zhipu` or `glm` | OpenAI-compatible Chat Completions | `https://open.bigmodel.cn/api/paas/v4` | `ZHIPU_API_KEY` |
+| `moonshot` or `kimi` | OpenAI-compatible Chat Completions | `https://api.moonshot.cn/v1` | `MOONSHOT_API_KEY` |
+| `qwen` or `dashscope` | OpenAI-compatible Chat Completions | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` |
 | `openai-compatible` | Chat Completions | required override | `VALCOACH_LLM_API_KEY` |
 
-`VALCOACH_LLM_MODEL` is explicit. For the DeepSeek provider only, the common mistaken value
-`DeepSeek` (the provider name) is normalized to the concrete `deepseek-chat` model ID; all other
-model IDs are preserved exactly.
+`VALCOACH_LLM_MODEL` is explicit and all model IDs are preserved exactly. The web UI supplies
+convenient current presets, but a user can enter any model ID accepted by the selected provider.
 `VALCOACH_LLM_BASE_URL` can override the endpoint. Non-loopback endpoints must use HTTPS.
 `VALCOACH_LLM_MAX_OUTPUT_TOKENS` defaults to 4096. OpenAI's limit includes both visible output and
 reasoning tokens, so a very small limit can finish before the model produces an answer.
@@ -50,4 +54,5 @@ API routes:
 - `POST /api/agent/settings` to set a per-user, process-memory-only provider configuration
 - `DELETE /api/agent/settings` to clear it and fall back to environment configuration, if present
 - `POST /api/matches/{id}/coach` with `{ "question": "..." }`
+- `POST /api/matches/{id}/coach/cancel` to interrupt the active model request
 - `GET /api/matches/{id}/coaching`
