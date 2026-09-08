@@ -47,36 +47,43 @@ LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
 
 ## 功能
 
+具体可用字段由录像区域、版本和解析结果决定。系统会为每场录像记录 capability 状态；缺失的数据保持缺失，不以零值或模型猜测代替。
+
 ### 必需能力（R1–R6）
 
 | 要求 | 实现 |
 |---|---|
 | R1 核心逻辑用 Rust | 容器探针、流式规范化、语义建模、地图解析、数据库、指标与 Agent 编排均位于 Rust workspace |
-| R2 用户交互界面 | React Web UI：账户、上传、阵容绑定、回合地图、模型设置与教练对话 |
+| R2 用户交互界面 | React Web UI：账户、上传、阵容绑定、战绩排行、回合地图、个人主页、模型设置与教练对话 |
 | R3 模型与参数可配置 | Provider、模型 ID、Base URL、最大输出 Token 和费用单价均可在 UI 或环境变量配置 |
 | R4 实时进度与打断 | SSE 推送解析阶段与进度；停止按钮调用取消端点并传播 Rust `CancellationToken` |
 | R5 上下文历史管理 | SQLite 按账户/对局保存对话，后续请求加载最近历史；UI 可查看和清空 |
 | R6 Token 与费用 | 每次保存输入/输出/总 Token；配置单价后计算并展示估算费用 |
 
 ### 回放解析
-- 全球 13.05 完整支持：138,065 条事件 + 165,047 条移动样本
-- 国服 13.05 部分导入：服务器时间线 + 阵容（ReplayData 加密常量不同，移动/战斗不可用）
-- 容器级 probe：区域检测、chunk 统计、完整性校验
+
+- 对已支持的国际服版本流式导入事件与移动数据；数据量由录像时长和实际对局内容决定，不依赖固定记录数
+- 国服 13.05 可导入服务器时间线和 5v5 阵容；当 ReplayData 变换无法验证时安全降级，不生成未经验证的移动或战斗结论
+- 容器级探针：区域与版本识别、数据块统计、完整性校验
+- 国际服与国服处理共用稳定领域模型和数据库结构，解析能力差异通过 capability 状态明确表达
 
 ### 语义建模
-- **PlayerResolver**: Subject UUID → PlayerState NetGUID → Character NetGUID → Agent，5v5 阵容
-- **RoundBuilder**: roundStarted/MulticastEndRound 回合边界 + switchTeams 攻防切换
-- **CombatBuilder**: 射击 burst 合并、伤害事件、击杀归因（server + parser 双源交叉验证）
-- **SpikeBuilder**: plant/defuse/explode + TimedBomb 位置 → 区域
-- **AbilityBuilder**: 从 actor_spawned 提取技能效果，并转换为官方英文技能名（如 `Sova — Recon Bolt`）
-- **MapAreaResolver**: Valorant-API callout 区域解析，支持全部竞技地图
-- **Movement**: round/alive/area/yaw/pitch/velocity 完整 enrichment
+
+- **PlayerResolver**：将回放中的 UUID、PlayerState 与 Character 关系还原为双方玩家及特工阵容
+- **RoundBuilder**：识别回合边界、回合胜方和半场攻防切换；面向用户的回合从第 1 回合开始
+- **CombatBuilder**：合并连续射击、伤害与击杀事件，完成攻击者、受害者和首杀/首死归因
+- **ScoreboardBuilder**：从回放计算 K/D、总伤害、ADR、爆头率及回放估算 ACS；无法从回放取得的非伤害助攻不会计入 ACS
+- **SpikeBuilder**：提取安装、拆除、爆炸及 Spike 所在区域
+- **AbilityBuilder**：提取可识别的技能事件并规范化为官方英文名；无法可靠映射的技能不会被猜测补全
+- **MapAreaResolver**：根据本地地图元数据进行坐标转换与 callout 区域解析
+- **Movement**：为移动样本补充所属回合、存活状态、区域、朝向与速度等语义字段
 
 ### 智能体
+
 - 多 provider 支持：OpenAI / Claude / DeepSeek / Gemini / xAI Grok / 智谱 GLM / Kimi / Qwen / 自定义 OpenAI 兼容接口
-- 人类可读时间格式（`R8 00:26.1`）
-- Agent 上下文自动注入 `human_time` + 区域名（非原始坐标）
-- 射击 burst 合并：304 条独立 shot → ~20-30 个紧凑 burst
+- 时间统一表示为“回合编号 + 回合内时间”，模型上下文不使用难以阅读的原始毫秒值
+- Agent 上下文自动注入人类可读时间和区域名，不要求模型解释原始坐标
+- 将同一连续射击窗口内的 shot、damage 与 kill 合并为紧凑战斗片段；压缩结果随录像内容变化
 - 确定性紧凑回放：每回合预编译 JSON，缓存在 SQLite
 - 个性化问题记忆：LLM 自动提取 `<coaching_issue>` 块并持久化，跨对局趋势分析
 - 个人训练画像：段位、主玩位置/特工和训练目标会作为用户偏好注入模型上下文，不会冒充录像证据
@@ -85,17 +92,18 @@ LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
 - API Key 仅存后端进程内存，不写入数据库
 
 ### 前端
+
 - 三 Tab 布局：**阵容** / **回合** / **教练**
 - 本场 10 人战绩排行：K/D、回放估算 ACS、ADR、首杀/首死、爆头率
 - 个人主页：可选段位、位置、主玩特工、训练目标，以及已绑定对局的多场趋势图
-- 本地官方名称与图片快照：29 位可玩特工头像、技能图标、段位图标和地图俯视图
+- 本地游戏内容快照：可玩特工头像、官方英文名称、技能图标、段位图标和地图俯视图
 - 2D 地图查看器：SVG 画布展示玩家路线、战斗标记、Spike 图标
 - Markdown 渲染：标题/粗体/列表/代码块/表格
 - 解析阶段实时进度与停止按钮
 - 模型、最大输出、Base URL 与费用单价均可在网页配置
 - 对话历史按对局保存、自动带入后续提问，也可手动清空
 - 录像删除：侧栏删除按钮，同时清理本地文件
-- 显示名映射：Hunter→Sova, Bonsai→Split, Deadeye→Chamber
+- 显示名映射由本地内容目录统一提供，界面和 Rust 语义层不再分别维护零散名称表
 
 ## 快速入门
 
