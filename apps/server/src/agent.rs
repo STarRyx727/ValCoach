@@ -22,7 +22,7 @@ use crate::{
 };
 
 const MAX_QUESTION_BYTES: usize = 4_000;
-const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 4_096;
+const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 32_768;
 const MAX_MAX_OUTPUT_TOKENS: u32 = 393_216;
 const MAX_CONTEXT_BYTES: usize = 96_000;
 const MAX_HISTORY_MESSAGES: usize = 6;
@@ -1482,7 +1482,7 @@ fn agent_api_error(error: AgentError) -> AuthApiError {
         AgentError::Incomplete(reason) => {
             tracing::error!(%reason, "replay coaching provider response was incomplete");
             AuthApiError::bad_gateway(if reason == "max_output_tokens" || reason == "max_tokens" {
-                "模型在生成答案前用完了输出 Token。请在模型设置中将“最大输出 Tokens”提高到 4096 或更高后重试。"
+                "模型在生成答案前用完了输出 Token。请检查模型设置；最大输出 Tokens 的默认值为 32768。"
             } else {
                 "模型没有完成答案，请稍后重试。"
             })
@@ -1665,6 +1665,18 @@ mod tests {
 
     #[test]
     fn provider_selection_and_optional_cost_are_deterministic() {
+        let provider = LlmProvider::from_settings(AgentSettingsRequest {
+            provider: "openai".to_owned(),
+            model: "test-model".to_owned(),
+            api_key: "test-key".to_owned(),
+            base_url: None,
+            max_output_tokens: None,
+            input_usd_per_million: None,
+            output_usd_per_million: None,
+        })
+        .expect("provider defaults");
+        assert_eq!(provider.max_output_tokens, 32_768);
+
         assert_eq!(
             ProviderKind::parse("claude").expect("alias"),
             ProviderKind::Anthropic

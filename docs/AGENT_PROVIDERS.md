@@ -19,7 +19,7 @@ equivalent server environment fallback:
 `VALCOACH_LLM_MODEL` is explicit and all model IDs are preserved exactly. The web UI supplies
 convenient current presets, but a user can enter any model ID accepted by the selected provider.
 `VALCOACH_LLM_BASE_URL` can override the endpoint. Non-loopback endpoints must use HTTPS.
-`VALCOACH_LLM_MAX_OUTPUT_TOKENS` defaults to 4096. OpenAI's limit includes both visible output and
+`VALCOACH_LLM_MAX_OUTPUT_TOKENS` defaults to 32768. OpenAI's limit includes both visible output and
 reasoning tokens, so a very small limit can finish before the model produces an answer.
 
 The implementation follows the [official OpenAI Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create),

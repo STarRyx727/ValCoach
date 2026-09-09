@@ -31,44 +31,30 @@
 | `http://127.0.0.1:3000` | Rust API，通常无需直接打开 |
 | `http://127.0.0.1:7890` | 可选的本地 Git HTTP 代理，不是 ValCoach 服务端口 |
 
-## 2. 获取并编译
+## 2. 安装、编译和启动
 
 ```powershell
 git clone https://github.com/STarRyx727/ValCoach.git
 cd ValCoach
 ```
 
-先安装固定版本的回放解析器。脚本会克隆上游 C# Parser、应用仓库内的单一生产补丁并进行编译：
+进入仓库根目录后，只需要执行：
 
 ```powershell
-.\scripts\setup_parser.ps1 -SkipTests
+.\start.cmd
 ```
 
-如果 GitHub 连接需要代理，可以显式指定：
+`start.cmd` 会自动完成以下工作：
 
-```powershell
-$env:VALCOACH_GIT_PROXY = 'http://127.0.0.1:7890'
-.\scripts\setup_parser.ps1 -SkipTests
-```
+- 下载固定版本的 C# 回放解析器
+- 应用 ValCoach 生产补丁并编译 Parser
+- 安装锁定的 Web 依赖
+- 编译 Rust 后端
+- 启动后端与 Web UI，并自动打开浏览器
 
-脚本也会自动使用正在监听的 `127.0.0.1:7890`，网络失败时最多重试三次。
+首次启动需要联网下载依赖，之后再次执行同一个 `start.cmd` 即可。Parser 下载失败时会自动重试三次；如果 `127.0.0.1:7890` 正在监听，也会自动使用该 Git 代理。
 
-编译 Rust 后端和 Web 前端：
-
-```powershell
-cargo build -p valcoach-server --release
-
-Set-Location web
-npm ci
-npm run build
-Set-Location ..
-```
-
-生成结果：
-
-- Rust 后端：`target\release\valcoach-server.exe`
-- Web 静态构建：`web\dist\`
-- C# Parser：`.external\ValorantReplayParser\src\CliReader\bin\Release\net10.0\`
+启动成功后访问 `http://127.0.0.1:5173`。在终端按 `Ctrl+C` 即可停止本次启动的前端和后端。
 
 ## 3. 配置 Endpoint 和 API Key
 
@@ -115,7 +101,7 @@ $env:VALCOACH_LLM_PROVIDER = 'deepseek'
 $env:VALCOACH_LLM_MODEL = 'deepseek-v4-flash'
 $env:DEEPSEEK_API_KEY = '你的 API Key'
 $env:VALCOACH_LLM_BASE_URL = 'https://api.deepseek.com'
-$env:VALCOACH_LLM_MAX_OUTPUT_TOKENS = '4096'
+$env:VALCOACH_LLM_MAX_OUTPUT_TOKENS = '32768'
 .\start.cmd
 ```
 
@@ -126,7 +112,7 @@ $env:VALCOACH_LLM_PROVIDER = 'openai-compatible'
 $env:VALCOACH_LLM_MODEL = '服务商提供的准确模型 ID'
 $env:VALCOACH_LLM_API_KEY = '你的 API Key'
 $env:VALCOACH_LLM_BASE_URL = 'https://example.com/v1'
-$env:VALCOACH_LLM_MAX_OUTPUT_TOKENS = '4096'
+$env:VALCOACH_LLM_MAX_OUTPUT_TOKENS = '32768'
 .\start.cmd
 ```
 
@@ -137,52 +123,9 @@ $env:VALCOACH_LLM_INPUT_USD_PER_MILLION = '0.00'
 $env:VALCOACH_LLM_OUTPUT_USD_PER_MILLION = '0.00'
 ```
 
-`.env.example` 是变量清单示例，当前程序不会自动加载该文件；请使用 PowerShell `$env:`、系统环境变量，或者直接在网页中配置。
+`.env.example` 是变量清单示例，当前程序不会自动加载该文件；请使用 PowerShell `$env:`、系统环境变量，或者直接在网页中配置。未另外配置时，最大输出 Tokens 默认是 `32768`。
 
-## 4. 运行
-
-最简单的方式是在仓库根目录双击 `start.cmd`，或执行：
-
-```powershell
-.\start.cmd
-```
-
-首次运行会自动完成 Parser 安装、Web 依赖安装和 Rust debug 编译。启动成功后浏览器会打开：
-
-```text
-http://127.0.0.1:5173
-```
-
-在当前终端按 `Ctrl+C` 会停止前端和本次启动的后端进程。重复运行脚本时，只会清理由当前仓库生成的残留 `valcoach-server`，不会终止占用端口的其他程序。
-
-不希望自动打开浏览器时：
-
-```powershell
-.\scripts\start_valcoach.ps1 -SkipBrowser
-```
-
-已经安装过 Parser，希望跳过安装检查时：
-
-```powershell
-.\scripts\start_valcoach.ps1 -SkipParserSetup
-```
-
-也可以手动运行两个进程。
-
-终端 1：
-
-```powershell
-.\target\release\valcoach-server.exe
-```
-
-终端 2：
-
-```powershell
-Set-Location web
-npm run dev -- --host 127.0.0.1 --strictPort
-```
-
-## 5. 演示用例
+## 4. 演示用例
 
 仓库不会上传大型或可能包含个人信息的 `.vrf` 文件。准备一份受支持的 Global 13.05 或 China 13.05 录像，然后按以下流程演示。
 
@@ -191,7 +134,7 @@ npm run dev -- --host 127.0.0.1 --strictPort
 1. 执行 `.\start.cmd`，访问 `http://127.0.0.1:5173`。
 2. 注册一个本地测试账户并登录。
 3. 打开“模型设置”，选择 `DeepSeek`。
-4. 填写模型 `deepseek-v4-flash`、Base URL `https://api.deepseek.com`、自己的 Key，以及最大输出 `4096`。
+4. 填写模型 `deepseek-v4-flash`、Base URL `https://api.deepseek.com` 和自己的 Key；最大输出默认是 `32768`。
 5. 上传 `.vrf`，观察实时解析进度；需要时可以点击停止。
 6. 解析完成后检查状态：受支持录像应显示“完整解析”，并列出阵容、战斗、移动与技能能力。
 7. 在“阵容”中点击自己对应的玩家；再次点击可以取消绑定。
@@ -230,7 +173,7 @@ Demos-China\0d7e68dd-1563-4f12-ba54-1afdf5f99916.vrf
 
 该脚本会依次验证 Parser transform、国际服真实录像、国服 13.05 真实录像、Web smoke test 和生产构建。测试录像不会进入 Git。
 
-## 6. 常用验证命令
+## 5. 开发者验证
 
 ```powershell
 cargo test --workspace
@@ -242,7 +185,7 @@ npm run build
 Set-Location ..
 ```
 
-## 7. 项目结构
+## 6. 项目结构
 
 ```text
 apps/server/            Rust/axum API、认证、解析任务与 Agent

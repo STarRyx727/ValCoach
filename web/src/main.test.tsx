@@ -18,7 +18,7 @@ const configured: AgentStatus = {
   model: "gpt-5.6-sol",
   source: "web",
   api_key_in_memory: true,
-  max_output_tokens: 4096,
+  max_output_tokens: 32768,
 };
 
 function mockJson(value: unknown) {
@@ -74,7 +74,7 @@ describe("critical UI flows", () => {
       provider: "openai",
       model: "gpt-5.6-sol",
       api_key: "test-key",
-      max_output_tokens: 4096,
+      max_output_tokens: 32768,
     });
     expect(onSaved).toHaveBeenCalledWith(configured);
   });
