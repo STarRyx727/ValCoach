@@ -71,6 +71,7 @@ pub(super) struct MovementEnrichment {
 #[derive(Debug)]
 struct AbilityDraft {
     timestamp_ms: i64,
+    agent_codename: String,
     ability_name: String,
     position: Option<Vector3>,
     evidence: EvidenceRef,
@@ -139,6 +140,7 @@ pub(super) struct SemanticBuilder {
     state_to_player: HashMap<u64, String>,
     pawn_to_player: HashMap<u64, String>,
     player_teams: HashMap<String, String>,
+    player_agents: HashMap<String, String>,
     switch_time_ms: Option<i64>,
     tracks: HashMap<String, Vec<TrackPoint>>,
     death_times: HashMap<(String, u32), Vec<i64>>,
@@ -250,10 +252,11 @@ impl SemanticBuilder {
             {
                 self.bomb_spawns.push((event.timestamp_ms, position));
             }
-            if let Some(ability_name) = extract_ability_name(path) {
+            if let Some((agent_codename, ability_name)) = extract_ability_name(path) {
                 self.diagnostics.ability_spawns += 1;
                 self.ability_drafts.push(AbilityDraft {
                     timestamp_ms: event.timestamp_ms,
+                    agent_codename,
                     ability_name,
                     position: json_vector(event.raw.get("location")),
                     evidence: self.evidence(
@@ -420,6 +423,11 @@ impl SemanticBuilder {
             .players
             .iter()
             .map(|player| (player.id.clone(), player.team.clone()))
+            .collect();
+        self.player_agents = roster
+            .players
+            .iter()
+            .filter_map(|player| Some((player.id.clone(), player.agent_name.as_ref()?.clone())))
             .collect();
         for draft in &self.server_drafts {
             if draft.kind == "characterDeath"
@@ -725,10 +733,10 @@ impl SemanticBuilder {
             let round_no = self.round_for_time(draft.timestamp_ms);
             let mut evidence = draft.evidence;
             evidence.round_no = round_no;
-            let player_id = draft
-                .position
-                .as_ref()
-                .and_then(|pos| self.find_nearest_player(pos, draft.timestamp_ms));
+            let player_id = draft.position.as_ref().and_then(|pos| {
+                self.find_nearest_player_for_agent(pos, draft.timestamp_ms, &draft.agent_codename)
+            });
+            evidence.player_id = player_id.clone();
             let area = draft.position.as_ref().and_then(|pos| {
                 resolve_area(
                     pos,
@@ -918,10 +926,22 @@ impl SemanticBuilder {
         ((point.timestamp_ms - timestamp_ms).abs() <= 2_500).then(|| point.position.clone())
     }
 
-    fn find_nearest_player(&self, pos: &Vector3, timestamp_ms: i64) -> Option<String> {
+    fn find_nearest_player_for_agent(
+        &self,
+        pos: &Vector3,
+        timestamp_ms: i64,
+        agent_codename: &str,
+    ) -> Option<String> {
         self.tracks
             .iter()
             .filter_map(|(player_id, track)| {
+                if !self
+                    .player_agents
+                    .get(player_id)
+                    .is_some_and(|agent| agent.eq_ignore_ascii_case(agent_codename))
+                {
+                    return None;
+                }
                 let point = track
                     .iter()
                     .rev()
@@ -984,7 +1004,7 @@ fn clean_hit_region(value: &str) -> String {
 }
 
 /// Convert replay-internal ability paths into Riot's English display names.
-fn extract_ability_name(path: &str) -> Option<String> {
+fn extract_ability_name(path: &str) -> Option<(String, String)> {
     if !path.contains("Ability_") && !path.contains("GameObject_") && !path.contains("Projectile_")
     {
         return None;
@@ -998,9 +1018,12 @@ fn extract_ability_name(path: &str) -> Option<String> {
     }
     let codename = path.split("/Characters/").nth(1)?.split('/').next()?;
     let official = official_ability_name(codename, path)?;
-    Some(format!(
-        "{} — {official}",
-        valcoach_domain::agent_display_name(codename)
+    Some((
+        codename.to_owned(),
+        format!(
+            "{} — {official}",
+            valcoach_domain::agent_display_name(codename)
+        ),
     ))
 }
 
@@ -1053,6 +1076,17 @@ fn official_ability_name(codename: &str, path: &str) -> Option<&'static str> {
         }
         "Clay" if contains("BoomBot") => Some("Boom Bot"),
         "Clay" if contains("Rocket") => Some("Showstopper"),
+        // Ability_Thorne_* actors are inventory instances created at load/respawn rather
+        // than casts. The projectile and root wall object each represent one real use;
+        // the landed slow patch and four wall segments are derived entities.
+        "Thorne" if contains("Projectile_Thorne_4_Slow") => {
+            valcoach_domain::agent_ability_display_name("Thorne", "Ability1")
+        }
+        "Thorne"
+            if contains("GameObject_Thorne_E_Wall_Fortifying") && !contains("Wall_Segment") =>
+        {
+            valcoach_domain::agent_ability_display_name("Thorne", "Grenade")
+        }
         _ => None,
     }
 }
@@ -1110,7 +1144,9 @@ pub(super) fn split_area(position: &Vector3) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{official_ability_name, split_area};
+    use super::{
+        SemanticBuilder, TrackPoint, extract_ability_name, official_ability_name, split_area,
+    };
     use valcoach_domain::Vector3;
 
     #[test]
@@ -1145,6 +1181,76 @@ mod tests {
                 "/Game/Characters/Terra/Passive/Ability_Terra_Passive"
             ),
             None
+        );
+        assert_eq!(
+            extract_ability_name(
+                "/Game/Characters/Thorne/S0/Ability_4/Projectile_Thorne_4_SlowFIeld_Production"
+            ),
+            Some(("Thorne".to_owned(), "Sage — Slow Orb".to_owned()))
+        );
+        assert_eq!(
+            extract_ability_name(
+                "/Game/Characters/Thorne/S0/Ability_E/GameObject_Thorne_E_Wall_Fortifying"
+            ),
+            Some(("Thorne".to_owned(), "Sage — Barrier Orb".to_owned()))
+        );
+        assert_eq!(
+            extract_ability_name(
+                "/Game/Characters/Thorne/S0/Ability_E/GameObject_Thorne_E_Wall_Segment_Fortifying"
+            ),
+            None
+        );
+        assert_eq!(
+            extract_ability_name(
+                "/Game/Characters/Thorne/S0/Ability_4/Ability_Thorne_4_SlowField_Production"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ability_owner_resolution_only_considers_the_matching_agent() {
+        let mut builder = SemanticBuilder::default();
+        builder
+            .player_agents
+            .insert("sage".to_owned(), "Thorne".to_owned());
+        builder
+            .player_agents
+            .insert("jett".to_owned(), "Wushu".to_owned());
+        builder.tracks.insert(
+            "sage".to_owned(),
+            vec![TrackPoint {
+                timestamp_ms: 1_000,
+                position: Vector3 {
+                    x: 500.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+            }],
+        );
+        builder.tracks.insert(
+            "jett".to_owned(),
+            vec![TrackPoint {
+                timestamp_ms: 1_000,
+                position: Vector3 {
+                    x: 10.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+            }],
+        );
+
+        assert_eq!(
+            builder.find_nearest_player_for_agent(
+                &Vector3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                1_000,
+                "Thorne",
+            ),
+            Some("sage".to_owned())
         );
     }
 }

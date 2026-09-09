@@ -23,6 +23,13 @@ struct ContentAgent {
     uuid: String,
     developer_name: String,
     display_name: String,
+    abilities: Vec<ContentAbility>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContentAbility {
+    slot: String,
+    display_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +75,18 @@ pub fn is_official_agent_display_name(name: &str) -> bool {
         .agents
         .iter()
         .any(|agent| agent.display_name.eq_ignore_ascii_case(name))
+}
+
+/// Resolve an official English ability name from the bundled offline Riot catalog.
+pub fn agent_ability_display_name(codename: &str, slot: &str) -> Option<&'static str> {
+    game_content()
+        .agents
+        .iter()
+        .find(|agent| agent.developer_name.eq_ignore_ascii_case(codename))?
+        .abilities
+        .iter()
+        .find(|ability| ability.slot.eq_ignore_ascii_case(slot))
+        .map(|ability| ability.display_name.as_str())
 }
 
 /// Convert map asset path to display name.
@@ -359,7 +378,9 @@ pub struct ParsedReplay {
 
 #[cfg(test)]
 mod tests {
-    use super::{CoordinateBounds, Vector3, agent_display_name, map_display_name};
+    use super::{
+        CoordinateBounds, Vector3, agent_ability_display_name, agent_display_name, map_display_name,
+    };
 
     #[test]
     fn official_display_names_cover_current_replay_codenames() {
@@ -368,6 +389,14 @@ mod tests {
         assert_eq!(agent_display_name("Iris"), "Miks");
         assert_eq!(agent_display_name("Cashew"), "Tejo");
         assert_eq!(agent_display_name("Terra"), "Waylay");
+        assert_eq!(
+            agent_ability_display_name("Thorne", "Ability1"),
+            Some("Slow Orb")
+        );
+        assert_eq!(
+            agent_ability_display_name("Thorne", "Grenade"),
+            Some("Barrier Orb")
+        );
         assert_eq!(map_display_name("/Game/Maps/Plummet/Plummet"), "Summit");
     }
 
