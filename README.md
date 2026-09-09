@@ -1,225 +1,264 @@
 # ValCoach
 
-> 个性化、证据落地的 VALORANT 回放复盘 Agent
+本地运行的 VALORANT `.vrf` 回放复盘工具。ValCoach 先用确定性程序解析回合、阵容、枪战、技能、Spike 和移动轨迹，再把与问题相关的紧凑证据交给可配置的 LLM，生成带回合、时间和位置依据的复盘建议。
 
-## 项目概要
+当前支持：
 
-ValCoach 是一个本地运行的 VALORANT 回放分析工具。用户上传 `.vrf` 录像文件后，系统在本地完成解析、语义建模和证据索引，然后通过 LLM Agent 提供基于具体回合/时间/位置的战术复盘建议。
+- Global 13.05 完整解析
+- China 13.05 独立 payload transform 完整解析
+- 其他未验证分支明确拒绝，不会套用相近版本或跨区域 transform
+- Web UI、解析实时进度与中止、10 人战绩榜、回合地图、个人画像与多场趋势
+- OpenAI、Claude、DeepSeek、Gemini、Grok、GLM、Kimi、Qwen 和自定义 OpenAI 兼容接口
+- 对话历史、Token 用量及可选费用估算
 
-核心理念：**不让大模型读原始回放数据；让程序先把回放编译成大模型真正需要的战术事实。**
+## 1. 环境要求
 
-## 技术栈
+目前提供 Windows 一键启动脚本。编译前请安装：
 
-| 层 | 技术 |
+| 工具 | 最低版本 | 检查命令 |
+|---|---:|---|
+| Git | 当前稳定版 | `git --version` |
+| Rust | 1.97 | `cargo --version` |
+| .NET SDK | 10 | `dotnet --version` |
+| Node.js | 22.12 | `node --version` |
+| npm | 随 Node.js 安装 | `npm --version` |
+
+端口用途：
+
+| 地址 | 用途 |
 |---|---|
-| 核心逻辑 | Rust 2024 edition, tokio async runtime |
-| HTTP 服务 | axum 0.8, tower-sessions |
-| 数据库 | SQLite (sqlx, WAL 模式, 批量事务写入) |
-| 前端 | React 19.2.8 + TypeScript 7.0.2 + Vite 8.2.2 |
-| 回放解析器 | C# / .NET 10 — `michel-giehl/ValorantReplayParser` (通过 CLI + NDJSON 接入) |
-| 容器探针 | Rust — `vrf-container` from `yakisoba0728/vrfkit` |
-| LLM 接入 | OpenAI Responses / Claude Messages / DeepSeek 与主流 OpenAI 兼容 API |
-| 认证 | Argon2id 密码哈希, 本地 session cookie |
+| `http://127.0.0.1:5173` | 浏览器访问的 Web UI |
+| `http://127.0.0.1:3000` | Rust API，通常无需直接打开 |
+| `http://127.0.0.1:7890` | 可选的本地 Git HTTP 代理，不是 ValCoach 服务端口 |
 
-## 架构
-
-```
-.vrf 上传
-  ↓
-vrf_probe: 容器解析 → 区域检测 → 服务器时间线 → 阵容
-  ↓
-C# ValorantReplayParser: events.ndjson + movement.ndjson
-  ↓
-Rust ParsedBundleSource: 流式 NDJSON → GenericEvent / MovementSample
-  ↓
-SemanticBuilder: 构建 rounds / combat / abilities / spike / movement enrichment
-  ↓
-SQLite: events, movement_samples, players, rounds, combat_events,
-         spike_events, ability_events, shots, compact_replays, player_issues, user_profiles
-  ↓
-CompactReplay: 每回合预编译路线/战斗/技能/Spike JSON
-  ↓
-Agent Context Builder: 按问题范围检索相关回合 + 证据
-  ↓
-LLM（OpenAI / Claude / DeepSeek / Gemini / Grok / GLM / Kimi / Qwen）
-  → 带地图/回合/时间/证据的复盘
-```
-
-## 功能
-
-具体可用字段由录像区域、版本和解析结果决定。系统会为每场录像记录 capability 状态；缺失的数据保持缺失，不以零值或模型猜测代替。
-
-### 必需能力（R1–R6）
-
-| 要求 | 实现 |
-|---|---|
-| R1 核心逻辑用 Rust | 容器探针、流式规范化、语义建模、地图解析、数据库、指标与 Agent 编排均位于 Rust workspace |
-| R2 用户交互界面 | React Web UI：账户、上传、阵容绑定、战绩排行、回合地图、个人主页、模型设置与教练对话 |
-| R3 模型与参数可配置 | Provider、模型 ID、Base URL、最大输出 Token 和费用单价均可在 UI 或环境变量配置 |
-| R4 实时进度与打断 | SSE 推送解析阶段与进度；停止按钮调用取消端点并传播 Rust `CancellationToken` |
-| R5 上下文历史管理 | SQLite 按账户/对局保存对话，后续请求加载最近历史；UI 可查看和清空 |
-| R6 Token 与费用 | 每次保存输入/输出/总 Token；配置单价后计算并展示估算费用 |
-
-### 回放解析
-
-- 对已支持的国际服与国服 13.05 版本流式导入事件、枪战和产品级移动样本；数据量由录像时长和实际对局内容决定，不依赖固定记录数
-- 国服 13.05 使用独立的 China payload transform，绝不复用或改写成 Global 分支；其他未知国服分支会明确拒绝
-- 解析器可选择保留 gzip 压缩的全精度移动流；ValCoach 默认只持久化约 10 Hz 的主玩家样本，动态技能实体不会进入玩家战绩或 SQLite 移动指标
-- 容器级探针：区域与版本识别、数据块统计、完整性校验
-- 国际服与国服处理共用稳定领域模型和数据库结构，解析能力差异通过 capability 状态明确表达
-
-### 语义建模
-
-- **PlayerResolver**：将回放中的 UUID、PlayerState 与 Character 关系还原为双方玩家及特工阵容
-- **RoundBuilder**：识别回合边界、回合胜方和半场攻防切换；面向用户的回合从第 1 回合开始
-- **CombatBuilder**：合并连续射击、伤害与击杀事件，完成攻击者、受害者和首杀/首死归因
-- **ScoreboardBuilder**：从回放计算 K/D、总伤害、ADR、爆头率及回放估算 ACS；无法从回放取得的非伤害助攻不会计入 ACS
-- **SpikeBuilder**：提取安装、拆除、爆炸及 Spike 所在区域
-- **AbilityBuilder**：提取可识别的技能事件并规范化为官方英文名；无法可靠映射的技能不会被猜测补全
-- **MapAreaResolver**：根据本地地图元数据进行坐标转换与 callout 区域解析
-- **Movement**：为移动样本补充所属回合、存活状态、区域、朝向与速度等语义字段
-
-### 智能体
-
-- 多 provider 支持：OpenAI / Claude / DeepSeek / Gemini / xAI Grok / 智谱 GLM / Kimi / Qwen / 自定义 OpenAI 兼容接口
-- 时间统一表示为“回合编号 + 回合内时间”，模型上下文不使用难以阅读的原始毫秒值
-- Agent 上下文自动注入人类可读时间和区域名，不要求模型解释原始坐标
-- 将同一连续射击窗口内的 shot、damage 与 kill 合并为紧凑战斗片段；详细检索最多保留 6 个高相关回合，证据与移动路线均按固定预算抽样
-- 确定性紧凑回放：每回合预编译 JSON，缓存在 SQLite
-- 个性化问题记忆：LLM 自动提取问题并记录每次出现；历史问题模式只加载长期问题、画像和近期教练记录，不重复发送当前整局数据
-- 个人训练画像：段位、主玩位置/特工和训练目标会作为用户偏好注入模型上下文，不会冒充录像证据
-- 连接重试：超时/连接失败/5xx 自动重试 3 次
-- 请求中止：教练生成期间可随时停止，取消信号会传递到服务端模型请求
-- API Key 仅存后端进程内存，不写入数据库
-
-### 前端
-
-- 三 Tab 布局：**阵容** / **回合** / **教练**
-- 本场 10 人战绩排行：K/D、回放估算 ACS、ADR、首杀/首死、爆头率
-- 个人主页：可选段位、位置、主玩特工、训练目标，以及已绑定对局的多场趋势图
-- 本地游戏内容快照：可玩特工头像、官方英文名称、技能图标、段位图标和地图俯视图
-- 2D 地图查看器：SVG 画布展示玩家路线、战斗标记、Spike 图标
-- Markdown 渲染：标题/粗体/列表/代码块/表格
-- 解析阶段实时进度与停止按钮
-- 模型、最大输出、Base URL 与费用单价均可在网页配置
-- 对话历史按对局保存、自动带入后续提问，也可手动清空；用量同时显示单次输入/输出和账户累计 Token
-- 录像删除：侧栏删除按钮，同时清理本地文件
-- 显示名映射由本地内容目录统一提供，界面和 Rust 语义层不再分别维护零散名称表
-
-## 快速入门
-
-### 环境要求
-
-- Rust 1.97+ (rustup)
-- .NET 10 SDK
-- Node.js 22.12+
-
-### 安装与运行
-
-克隆仓库后双击根目录的 `start.cmd`，或在 PowerShell 执行：
+## 2. 获取并编译
 
 ```powershell
-.\scripts\start_valcoach.ps1
+git clone https://github.com/STarRyx727/ValCoach.git
+cd ValCoach
 ```
 
-首次运行会自动检出固定版本的 C# 解析器、应用包含紧凑导出与 China 13.05 独立变换的生产补丁，并安装前端依赖；地图元数据、俯视图、特工头像、技能与段位图标已经随仓库提供，运行时不需要访问资源 API，也无需 Python。
+先安装固定版本的回放解析器。脚本会克隆上游 C# Parser、应用仓库内的单一生产补丁并进行编译：
 
-解析器下载会自动重试三次。如果本机的 HTTP 代理软件正在 `127.0.0.1:7890` 监听，脚本会在从 GitHub 下载解析器时自动使用它；这个端口不是 ValCoach 网站端口。其他代理地址可先设置 `VALCOACH_GIT_PROXY`，例如：
+```powershell
+.\scripts\setup_parser.ps1 -SkipTests
+```
+
+如果 GitHub 连接需要代理，可以显式指定：
 
 ```powershell
 $env:VALCOACH_GIT_PROXY = 'http://127.0.0.1:7890'
+.\scripts\setup_parser.ps1 -SkipTests
+```
+
+脚本也会自动使用正在监听的 `127.0.0.1:7890`，网络失败时最多重试三次。
+
+编译 Rust 后端和 Web 前端：
+
+```powershell
+cargo build -p valcoach-server --release
+
+Set-Location web
+npm ci
+npm run build
+Set-Location ..
+```
+
+生成结果：
+
+- Rust 后端：`target\release\valcoach-server.exe`
+- Web 静态构建：`web\dist\`
+- C# Parser：`.external\ValorantReplayParser\src\CliReader\bin\Release\net10.0\`
+
+## 3. 配置 Endpoint 和 API Key
+
+### 方法 A：在网页中配置（推荐）
+
+启动 ValCoach 后，打开右上角“模型设置”，依次填写：
+
+1. 服务商
+2. 模型 ID
+3. API Key
+4. Base URL
+5. 最大输出 Tokens
+6. 可选的输入、输出价格（USD / 1M Tokens）
+
+常用配置示例：
+
+| 服务商 | 模型示例 | Base URL | Key 环境变量 |
+|---|---|---|---|
+| OpenAI | `gpt-5.6-sol` | 留空使用 `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| Claude | `claude-sonnet-5` | 留空使用 `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` |
+| DeepSeek | `deepseek-v4-flash` | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
+| Gemini | `gemini-3.8-flash` | `https://generativelanguage.googleapis.com/v1beta/openai` | `GEMINI_API_KEY` |
+| Grok | `grok-4.6` | `https://api.x.ai/v1` | `XAI_API_KEY` |
+| GLM | `glm-5.2` | `https://open.bigmodel.cn/api/paas/v4` | `ZHIPU_API_KEY` |
+| Kimi | `kimi-k3` | `https://api.moonshot.cn/v1` | `MOONSHOT_API_KEY` |
+| Qwen | `qwen3.8-max` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` |
+
+模型 ID 必须以服务商控制台当前实际提供的名称为准。预设只是便捷填充，也可以直接输入其他模型 ID。
+
+Base URL 应填写 API 根地址，例如 `https://api.deepseek.com` 或 `https://example.com/v1`，不要填写完整的 `/chat/completions`、`/responses` 或 `/messages` 请求地址。ValCoach 会根据服务商自动追加相应路径。
+
+网页填写的 Key：
+
+- 只保存在当前后端进程内存中
+- 不写入 SQLite，也不会由网页读取或回显
+- 后端退出后自动清除，下次启动需要重新填写
+
+### 方法 B：启动前设置环境变量
+
+以下为 DeepSeek 示例：
+
+```powershell
+$env:VALCOACH_LLM_PROVIDER = 'deepseek'
+$env:VALCOACH_LLM_MODEL = 'deepseek-v4-flash'
+$env:DEEPSEEK_API_KEY = '你的 API Key'
+$env:VALCOACH_LLM_BASE_URL = 'https://api.deepseek.com'
+$env:VALCOACH_LLM_MAX_OUTPUT_TOKENS = '4096'
 .\start.cmd
 ```
 
-本地端口分工如下：
-
-| 端口 | 用途 | 是否需要在浏览器打开 |
-|---|---|---|
-| `7890` | 可选的第三方 HTTP 代理，仅用于首次从 GitHub 下载解析器 | 否；未使用代理软件时无需开放 |
-| `3000` | ValCoach Rust API，由 Vite 转发 `/api` 请求 | 否 |
-| `5173` | ValCoach Web 界面 | 是，访问 `http://127.0.0.1:5173` |
-
-也就是说，日常使用只需要打开 `http://127.0.0.1:5173`；前端会自动把 API 请求转发到 3000 端口。
-
-重复运行 `start.cmd` 时，脚本会自动识别并结束当前项目残留的 `valcoach-server` 后端，再启动新实例。如果端口被其他程序占用，脚本不会终止该程序，而是保留现场并提示关闭对应程序。
-
-### 使用流程
-
-1. 打开浏览器访问 `http://127.0.0.1:5173`
-2. 注册本地账户 → 登录
-3. 上传 `.vrf` 录像文件（≤100 MiB）
-4. 等待解析完成（SSE 实时进度）
-5. 在阵容页选择你扮演的玩家
-6. 切换到回合页查看 2D 地图回放
-7. 切换到教练页，配置模型后提问
-8. 打开个人主页登记训练画像，并在积累多场已绑定对局后查看趋势
-
-### Agent 配置
-
-在 Web UI 的「模型设置」中配置：
-- 服务商：OpenAI / Claude / DeepSeek / Gemini / xAI Grok / 智谱 GLM / Kimi / Qwen / OpenAI 兼容
-- 模型 ID
-- API Key（仅存内存，不回显）
-- Base URL（兼容接口必填）
-- 最大输出 Tokens
-- 可选：每百万 Token 价格（用于成本估算）
-
-网页为各服务商提供常用模型预设，并允许自由输入服务商实际支持的模型 ID。DeepSeek 默认使用 `deepseek-v4-flash`。预设只是便捷填充；服务商变更模型名称后无需修改代码即可使用新 ID。
-
-## 验证
+自定义 OpenAI 兼容服务示例：
 
 ```powershell
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cd web; npm test; npm run build
+$env:VALCOACH_LLM_PROVIDER = 'openai-compatible'
+$env:VALCOACH_LLM_MODEL = '服务商提供的准确模型 ID'
+$env:VALCOACH_LLM_API_KEY = '你的 API Key'
+$env:VALCOACH_LLM_BASE_URL = 'https://example.com/v1'
+$env:VALCOACH_LLM_MAX_OUTPUT_TOKENS = '4096'
+.\start.cmd
 ```
 
-发布 Demo 前，在保留本地 `Demos-Global`、`Demos-China` 原始录像的环境执行完整人工检查：
+可选费用配置：
+
+```powershell
+$env:VALCOACH_LLM_INPUT_USD_PER_MILLION = '0.00'
+$env:VALCOACH_LLM_OUTPUT_USD_PER_MILLION = '0.00'
+```
+
+`.env.example` 是变量清单示例，当前程序不会自动加载该文件；请使用 PowerShell `$env:`、系统环境变量，或者直接在网页中配置。
+
+## 4. 运行
+
+最简单的方式是在仓库根目录双击 `start.cmd`，或执行：
+
+```powershell
+.\start.cmd
+```
+
+首次运行会自动完成 Parser 安装、Web 依赖安装和 Rust debug 编译。启动成功后浏览器会打开：
+
+```text
+http://127.0.0.1:5173
+```
+
+在当前终端按 `Ctrl+C` 会停止前端和本次启动的后端进程。重复运行脚本时，只会清理由当前仓库生成的残留 `valcoach-server`，不会终止占用端口的其他程序。
+
+不希望自动打开浏览器时：
+
+```powershell
+.\scripts\start_valcoach.ps1 -SkipBrowser
+```
+
+已经安装过 Parser，希望跳过安装检查时：
+
+```powershell
+.\scripts\start_valcoach.ps1 -SkipParserSetup
+```
+
+也可以手动运行两个进程。
+
+终端 1：
+
+```powershell
+.\target\release\valcoach-server.exe
+```
+
+终端 2：
+
+```powershell
+Set-Location web
+npm run dev -- --host 127.0.0.1 --strictPort
+```
+
+## 5. 演示用例
+
+仓库不会上传大型或可能包含个人信息的 `.vrf` 文件。准备一份受支持的 Global 13.05 或 China 13.05 录像，然后按以下流程演示。
+
+### 示例：使用 DeepSeek 复盘一场录像
+
+1. 执行 `.\start.cmd`，访问 `http://127.0.0.1:5173`。
+2. 注册一个本地测试账户并登录。
+3. 打开“模型设置”，选择 `DeepSeek`。
+4. 填写模型 `deepseek-v4-flash`、Base URL `https://api.deepseek.com`、自己的 Key，以及最大输出 `4096`。
+5. 上传 `.vrf`，观察实时解析进度；需要时可以点击停止。
+6. 解析完成后检查状态：受支持录像应显示“完整解析”，并列出阵容、战斗、移动与技能能力。
+7. 在“阵容”中点击自己对应的玩家；再次点击可以取消绑定。
+8. 查看战绩榜中的 K/D、估算 ACS、ADR、首杀/首死和爆头率。
+9. 在“回合”中选择某一回合，查看地图轨迹、交战和 Spike 标记。
+10. 在“教练”中依次提问：
+
+```text
+这局最值得改的一件事是什么？请给出对应回合和时间证据。
+```
+
+```text
+分析我的首死：哪些可以通过站位、节奏或队友协同避免？
+```
+
+```text
+和我的历史问题相比，这场有没有改善？只分析历史问题，不要重新总结整局。
+```
+
+预期结果：回答正文使用人类可读的回合、时间和区域名；“查看依据与数据限制”展示证据卡片，不显示原始 JSON；页面底部显示本次输入、输出和累计 Token，用量价格未填写时只统计 Token、不估算费用。
+
+### 开发者完整 fixture 演示
+
+如果本地有测试录像，将文件放到以下位置：
+
+```text
+Demos-Global\ec22cf8e-b1f4-48b7-8426-c60a20562b3e.vrf
+Demos-China\0d7e68dd-1563-4f12-ba54-1afdf5f99916.vrf
+```
+
+然后运行：
 
 ```powershell
 .\scripts\release_check.ps1
 ```
 
-脚本依次运行解析器变换/首块结构测试、完整国际服 fixture、完整国服 13.05 fixture、4 个前端关键流程 smoke test 和前端生产构建；大型录像仍不会进入普通 CI 或 Git。
+该脚本会依次验证 Parser transform、国际服真实录像、国服 13.05 真实录像、Web smoke test 和生产构建。测试录像不会进入 Git。
 
-## 游戏内容快照
-
-`web/public/game-content/catalog.json` 记录 Riot Public Content Catalog 版本、ETag 与更新时间作为官方资源基线，并保存由 Valorant-API 规范化的 UUID、开发代号、官方英文显示名和本地资源路径。所有图片均随仓库发布，因此正常运行不依赖外网。
-
-需要跟进新版本时，可手动执行：
+## 6. 常用验证命令
 
 ```powershell
-.\scripts\sync_game_content.ps1
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+
+Set-Location web
+npm test
+npm run build
+Set-Location ..
 ```
 
-脚本会刷新特工、技能、地图和段位资源，同时把地图元数据指向新的本地俯视图。该脚本仅用于维护快照，不会在启动时联网执行。
+## 7. 项目结构
 
-## 项目结构
-
-```
-crates/
-├─ domain/          # 稳定数据契约 + humanize + 显示名映射
-├─ maps/            # Valorant-API 地图元数据 + 坐标转换 + 区域解析
-├─ replay_adapter/  # ReplayDataSource trait + C# parser / NDJSON / China 实现
-├─ vrf_probe/       # .vrf 容器探针（region/branch/chunks/server_events）
-├─ metrics/         # 确定性移动指标
-├─ db/              # SQLite + SemanticBuilder + CompactReplay + PersonalMemory
-apps/
-└─ server/          # axum HTTP 服务（auth/jobs/matches/agent）
-web/                # React/Vite 前端
-scripts/            # 一键启动、解析器安装、发布检查与游戏内容快照同步
-docs/               # 长期技术文档（Provider、Bundle 协议、评测与架构决策）
+```text
+apps/server/            Rust/axum API、认证、解析任务与 Agent
+crates/db/              SQLite、语义层、紧凑回放与历史记忆
+crates/domain/          稳定领域模型和官方名称映射
+crates/maps/            地图坐标转换与区域解析
+crates/replay_adapter/  Parser 进程封装、NDJSON 和 China 13.05 接入
+crates/vrf_probe/       Rust VRF 容器探针与服务器事件
+patches/                固定 C# Parser 的 ValCoach 生产补丁
+scripts/                安装、启动、资源同步与发布检查
+web/                    React/Vite 用户界面及离线游戏内容资源
+docs/                   Bundle、Provider 和评测等技术文档
 ```
 
-## 参考开源项目
+核心逻辑使用 Rust；C# Parser 通过受控子进程和流式 NDJSON 边界接入。地图、特工头像、技能图标和官方英文名称随仓库提供，正常运行不依赖内容资源 API，也不需要 Python。
 
-| 项目 | 用途 | 许可证 |
-|------|------|--------|
-| [michel-giehl/ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser) | C# 生产级 VALORANT 回放解析器 | MIT |
-| [yakisoba0728/vrfkit](https://github.com/yakisoba0728/vrfkit) | Rust VRF 容器解析 + 事件/checkpoint 参考 | MIT |
-| [Riot Public Content Catalog](https://developer.riotgames.com/docs/valorant#content-catalog) | 官方名称与美术资源版本基线 | Riot Developer Portal |
-| [Valorant-API](https://valorant-api.com) | UUID/显示名映射、地图参数与可离线化资源索引 | 公开 API |
+## 许可证与上游项目
 
-## 许可证
-
-MIT
+ValCoach 使用 MIT License。回放能力基于固定版本的 [ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser) 和 [vrfkit](https://github.com/yakisoba0728/vrfkit)；游戏名称及资源基线来自 [Riot Public Content Catalog](https://developer.riotgames.com/docs/valorant#content-catalog) 与 [Valorant-API](https://valorant-api.com)。
