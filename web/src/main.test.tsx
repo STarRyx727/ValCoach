@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { CapabilityBadge, CoachPanel, SettingsModal, stripCoachingIssues, summarizeCapabilities, type AgentStatus } from "./main";
+import { CapabilityBadge, CoachPanel, SettingsModal, evidenceTypeLabel, stripCoachingIssues, summarizeCapabilities, type AgentStatus } from "./main";
 
 const unconfigured: AgentStatus = {
   configured: false,
@@ -56,6 +56,8 @@ describe("critical UI flows", () => {
     expect(badge.classList.contains("basic")).toBe(true);
     expect(summarizeCapabilities({ player_identity: "complete", rounds: "complete", movement: "complete", combat: "complete", abilities: "complete" }).label).toBe("完整解析");
     expect(stripCoachingIssues('可读建议。\n<coaching_issues> [{"issue_key":"hidden"}]')).toBe("可读建议。");
+    expect(evidenceTypeLabel("nearby_movement")).toBe("邻近移动轨迹");
+    expect(evidenceTypeLabel("characterUltimateUsed")).toBe("终极技能事件");
   });
 
   it("submits model settings", async () => {

@@ -31,20 +31,20 @@ if (-not (Test-Path -LiteralPath $parserMarker -PathType Leaf)) {
     if ($SkipParserSetup) {
         throw "Pinned replay parser is missing: $parserMarker"
     }
-    Write-Host '[1/5] Installing the pinned replay parser...'
+    Write-Host '[1/6] Installing the pinned replay parser...'
     & (Join-Path $PSScriptRoot 'setup_parser.ps1') -SkipTests
     if ($LASTEXITCODE -ne 0) { throw 'Parser setup failed.' }
 } else {
-    Write-Host '[1/5] Pinned replay parser is available.'
+    Write-Host '[1/6] Pinned replay parser is available.'
 }
 
 Push-Location $projectRoot
 try {
-    Write-Host '[2/5] Running the complete Global replay fixture...'
+    Write-Host '[2/6] Running the complete Global replay fixture...'
     & cargo test -p valcoach-server jobs::tests::global_13_05_job_reaches_ready_and_persists_a_match_summary -- --ignored --exact
     if ($LASTEXITCODE -ne 0) { throw 'Global replay fixture failed.' }
 
-    Write-Host '[3/5] Running the China replay fixture...'
+    Write-Host '[3/6] Running the China replay fixture...'
     & cargo test -p valcoach-server jobs::tests::china_13_05_job_imports_common_timeline_and_roster -- --ignored --exact
     if ($LASTEXITCODE -ne 0) { throw 'China replay fixture failed.' }
 } finally {
@@ -53,15 +53,15 @@ try {
 
 Push-Location $webRoot
 try {
-    if (-not (Test-Path -LiteralPath (Join-Path $webRoot 'node_modules'))) {
-        & npm ci
-        if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
-    }
-    Write-Host '[4/5] Running web smoke tests...'
+    Write-Host '[4/6] Installing the exact locked web dependencies...'
+    & npm ci
+    if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
+
+    Write-Host '[5/6] Running web smoke tests...'
     & npm test
     if ($LASTEXITCODE -ne 0) { throw 'Web smoke tests failed.' }
 
-    Write-Host '[5/5] Building the production web bundle...'
+    Write-Host '[6/6] Building the production web bundle...'
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'Web production build failed.' }
 } finally {

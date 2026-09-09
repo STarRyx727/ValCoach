@@ -379,6 +379,37 @@ function evidenceRecords(values: unknown[]): ReplayEvidence[] {
   return values.flatMap((value) => Array.isArray(value) ? evidenceRecords(value) : value && typeof value === "object" ? [value as ReplayEvidence] : []);
 }
 
+const EVIDENCE_TYPE_LABELS: Record<string, string> = {
+  movement: "移动轨迹",
+  movement_sample: "移动采样",
+  nearby_movement: "邻近移动轨迹",
+  combat: "交战事件",
+  shot: "射击事件",
+  damage: "伤害事件",
+  kill: "击杀事件",
+  character_death: "阵亡事件",
+  character_ultimate_used: "终极技能事件",
+  ability: "技能事件",
+  abilities: "技能事件",
+  ability_spawn: "技能事件",
+  spike_planted: "爆能器安装",
+  spike_defused: "爆能器拆除",
+  spike_exploded: "爆能器引爆",
+  spike_state: "爆能器状态",
+  round_started: "回合开始",
+  round_end: "回合结束",
+  economy: "经济事件",
+  replay_event: "录像事件",
+};
+
+export function evidenceTypeLabel(type: string) {
+  const normalized = type
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .toLowerCase();
+  return EVIDENCE_TYPE_LABELS[normalized] ?? "录像事件";
+}
+
 function evidenceLabel(evidence: ReplayEvidence, rounds: CompactRound[]) {
   const parts: string[] = [];
   if (evidence.round_no != null) parts.push(`第 ${evidence.round_no} 回合`);
@@ -390,7 +421,7 @@ function evidenceLabel(evidence: ReplayEvidence, rounds: CompactRound[]) {
   }
   if (evidence.area) parts.push(evidence.area);
   const type = evidence.evidence_type ?? evidence.source_event_type ?? "replay_event";
-  parts.push(type.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "));
+  parts.push(evidenceTypeLabel(type));
   return parts.join(" · ");
 }
 
