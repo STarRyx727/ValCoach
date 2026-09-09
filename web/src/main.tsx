@@ -95,8 +95,8 @@ const COACH_SUGGESTIONS = [
 ];
 
 export function summarizeCapabilities(capabilities: Record<string, string>): CapabilitySummary {
-  const supported = (key: string) => capabilities[key] === "supported";
-  const complete = ["player_identity", "rounds", "movement", "combat"].every(supported);
+  const supported = (key: string) => capabilities[key] === "complete" || capabilities[key] === "supported";
+  const complete = ["player_identity", "rounds", "movement", "combat", "abilities"].every(supported);
   const missing = [
     !supported("movement") && "移动轨迹",
     !supported("combat") && "枪战数据",
@@ -119,7 +119,12 @@ function CapabilityNotice({ capabilities }: { capabilities: Record<string, strin
 
 function capabilityFlag(capabilities: Record<string, string>, key: string, label: string) {
   const level = capabilities[key];
-  return <span className={`capability-flag ${level ?? "unsupported"}`} key={key}>{label} {level === "supported" ? "✓" : level === "partial" ? "部分可用" : "—"}</span>;
+  const complete = level === "complete" || level === "supported";
+  return <span className={`capability-flag ${complete ? "complete" : level ?? "unsupported"}`} key={key}>{label} {complete ? "✓" : level === "partial" ? "部分可用" : "—"}</span>;
+}
+
+export function stripCoachingIssues(content: string) {
+  return content.replace(/<coaching_issues?>[\s\S]*?(?:<\/coaching_issues?>|$)/gi, "").trim();
 }
 
 const MODEL_PRESETS: Record<string, { defaultModel: string; models: string[]; baseUrl: string; maximum: number }> = {
@@ -434,7 +439,7 @@ export function CoachPanel({ matchId, status, playerSelected, rounds = [], onUsa
     await api(`/api/matches/${matchId}/coaching`, { method: "DELETE" });
     setMessages([]);
   };
-  return <section className="coach-section"><div className="section-title"><div><span className="eyebrow">AI COACH</span><h2>开始复盘</h2></div><div className="coach-heading-actions">{status.configured && <span className="model-label">{status.provider} / {status.model}</span>}{messages.length > 0 && <button className="text-button" onClick={() => clearHistory().catch((reason) => setError(String(reason)))}>清空对话</button>}</div></div>{!status.configured ? <div className="coach-gate"><span>◇</span><div><strong>先连接一个模型</strong><p>支持 OpenAI、Claude、DeepSeek、Gemini、Grok、GLM、Kimi、Qwen 和兼容接口。</p></div><button className="secondary" onClick={onOpenSettings}>打开模型设置</button></div> : !playerSelected ? <div className="coach-gate"><span>◎</span><div><strong>先确认你的玩家</strong><p>选择上方阵容中的“这是我”，教练才会使用对应证据。</p></div></div> : <form onSubmit={ask} className="coach-form"><div className="question-suggestions" aria-label="推荐问题">{COACH_SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion} onClick={() => setQuestion(suggestion)}>{suggestion}</button>)}</div><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={4000} placeholder="问问这场对局里最值得改进的一件事…" aria-label="教练问题" />{error && <p className="notice error"><strong>{error}</strong><span>可以修改问题后重新发送。</span></p>}<div className="coach-submit">{pending && <button type="button" className="danger-text" onClick={()=>stop()}>中止复盘</button>}<button className="primary" disabled={pending || !question.trim()}>{pending ? "正在复盘…" : "发送给教练"}</button></div></form>}<div className="messages">{messages.map((message) => <section key={message.id} className={`message ${message.role}`}><header><strong>{message.role === "user" ? "你" : "VALCOACH"}</strong>{message.role === "assistant" && <small>本次输入 {message.usage.input_tokens.toLocaleString()} · 输出 {message.usage.output_tokens.toLocaleString()} · 共 {message.usage.total_tokens.toLocaleString()} tokens{message.usage.cost_microusd != null ? ` · $${(message.usage.cost_microusd / 1_000_000).toFixed(4)}` : ""}</small>}</header>{message.role === "assistant" ? <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} /> : <p>{message.content}</p>}{message.role === "assistant" && <EvidencePanel evidence={message.evidence} limitations={message.limitations} rounds={rounds} />}</section>)}</div></section>;
+  return <section className="coach-section"><div className="section-title"><div><span className="eyebrow">AI COACH</span><h2>开始复盘</h2></div><div className="coach-heading-actions">{status.configured && <span className="model-label">{status.provider} / {status.model}</span>}{messages.length > 0 && <button className="text-button" onClick={() => clearHistory().catch((reason) => setError(String(reason)))}>清空对话</button>}</div></div>{!status.configured ? <div className="coach-gate"><span>◇</span><div><strong>先连接一个模型</strong><p>支持 OpenAI、Claude、DeepSeek、Gemini、Grok、GLM、Kimi、Qwen 和兼容接口。</p></div><button className="secondary" onClick={onOpenSettings}>打开模型设置</button></div> : !playerSelected ? <div className="coach-gate"><span>◎</span><div><strong>先确认你的玩家</strong><p>选择上方阵容中的“这是我”，教练才会使用对应证据。</p></div></div> : <form onSubmit={ask} className="coach-form"><div className="question-suggestions" aria-label="推荐问题">{COACH_SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion} onClick={() => setQuestion(suggestion)}>{suggestion}</button>)}</div><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={4000} placeholder="问问这场对局里最值得改进的一件事…" aria-label="教练问题" />{error && <p className="notice error"><strong>{error}</strong><span>可以修改问题后重新发送。</span></p>}<div className="coach-submit">{pending && <button type="button" className="danger-text" onClick={()=>stop()}>中止复盘</button>}<button className="primary" disabled={pending || !question.trim()}>{pending ? "正在复盘…" : "发送给教练"}</button></div></form>}<div className="messages">{messages.map((message) => <section key={message.id} className={`message ${message.role}`}><header><strong>{message.role === "user" ? "你" : "VALCOACH"}</strong>{message.role === "assistant" && <small>本次输入 {message.usage.input_tokens.toLocaleString()} · 输出 {message.usage.output_tokens.toLocaleString()} · 共 {message.usage.total_tokens.toLocaleString()} tokens{message.usage.cost_microusd != null ? ` · $${(message.usage.cost_microusd / 1_000_000).toFixed(4)}` : ""}</small>}</header>{message.role === "assistant" ? <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(stripCoachingIssues(message.content)) }} /> : <p>{message.content}</p>}{message.role === "assistant" && <EvidencePanel evidence={message.evidence} limitations={message.limitations} rounds={rounds} />}</section>)}</div></section>;
 }
 
 function MapViewer({ compact, mapMeta }: { compact: CompactReplay | null; mapMeta: MapMeta }) {

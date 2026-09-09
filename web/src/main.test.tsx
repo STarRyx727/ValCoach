@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { CapabilityBadge, CoachPanel, SettingsModal, type AgentStatus } from "./main";
+import { CapabilityBadge, CoachPanel, SettingsModal, stripCoachingIssues, summarizeCapabilities, type AgentStatus } from "./main";
 
 const unconfigured: AgentStatus = {
   configured: false,
@@ -54,6 +54,8 @@ describe("critical UI flows", () => {
     render(<CapabilityBadge capabilities={{ player_identity: "supported", rounds: "partial", movement: "unsupported", combat: "unsupported" }} />);
     const badge = screen.getByText("基础解析");
     expect(badge.classList.contains("basic")).toBe(true);
+    expect(summarizeCapabilities({ player_identity: "complete", rounds: "complete", movement: "complete", combat: "complete", abilities: "complete" }).label).toBe("完整解析");
+    expect(stripCoachingIssues('可读建议。\n<coaching_issues> [{"issue_key":"hidden"}]')).toBe("可读建议。");
   });
 
   it("submits model settings", async () => {

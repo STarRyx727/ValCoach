@@ -42,7 +42,7 @@ Similarly, map names must use display names: Bonsai->Split, Duality->Bind, Triad
 Weapon names in shot events may be null or use internal names; use common names (e.g. "Classic", "Vandal", "Phantom") when available.
 If personal_issues are present in the context, relate current observations to known recurring problems and mention trends. An occurrence count of 1 is an initial observation, not yet a recurring pattern.
 Treat player_profile only as user-provided preferences and training background, never as replay evidence. Tailor explanations and drills to the player's rank, main role, agents, and training goals when present. Never infer a missing profile field.
-For match_analysis mode, whenever the answer identifies an evidence-backed weakness or actionable tactical problem, append one machine-readable <coaching_issues> JSON array after the answer. Each object must contain issue_key, category, title, description, map, side, area, severity (0-1), and confidence (0-1). Use a short stable snake_case issue_key so the same problem can be matched in later games. Emit [] if no problem was identified. Do not wrap this JSON in markdown fences. Never emit this block in personal_history_only mode.
+For match_analysis mode, whenever the answer identifies an evidence-backed weakness or actionable tactical problem, append one machine-readable block in exactly this form: <coaching_issues>[...]</coaching_issues>. Each object must contain issue_key, category, title, description, map, side, area, severity (0-1), and confidence (0-1). Use a short stable snake_case issue_key so the same problem can be matched in later games. Emit an empty array inside the paired tags if no problem was identified. Do not wrap this JSON in markdown fences. Never emit this block in personal_history_only mode.
 Answer in the language used by the player. Be concise and actionable. Use markdown formatting (headers, bold, lists) for readability."#;
 
 #[derive(Clone)]
@@ -267,7 +267,17 @@ impl AgentService {
             let recent = self
                 .database
                 .recent_coaching_exchanges_for_user(user_id, 8)
-                .await?;
+                .await?
+                .into_iter()
+                .map(|mut exchange| {
+                    if let Some(answer) = exchange.get_mut("answer")
+                        && let Some(text) = answer.as_str()
+                    {
+                        *answer = Value::String(extract_coaching_issues(text).0);
+                    }
+                    exchange
+                })
+                .collect::<Vec<_>>();
             json!({
                 "retrieval_mode": retrieval_mode.as_str(),
                 "personal_issues": personal_issues,
@@ -568,13 +578,16 @@ fn extract_issue_tag(clean: &mut String, tag: &str, issues: &mut Vec<CoachingIss
             break;
         };
         let content_start = start + opening.len();
-        let Some(relative_end) = lower[content_start..].find(&closing) else {
-            break;
+        let (end, block_end) = match lower[content_start..].find(&closing) {
+            Some(relative_end) => {
+                let end = content_start + relative_end;
+                (end, end + closing.len())
+            }
+            None => (clean.len(), clean.len()),
         };
-        let end = content_start + relative_end;
         let block = clean[content_start..end].to_owned();
         issues.extend(parse_coaching_issue_block(&block));
-        clean.replace_range(start..end + closing.len(), "");
+        clean.replace_range(start..block_end, "");
     }
 }
 
@@ -1394,13 +1407,18 @@ pub async fn history(
     Path(match_id): Path<String>,
 ) -> Result<Json<Vec<AgentMessageRecord>>, AuthApiError> {
     let user_id = require_user_id(&state.auth, &session).await?;
-    state
+    let mut messages = state
         .auth
         .database
         .list_agent_messages_for_match(&user_id, &match_id)
         .await
-        .map(Json)
-        .map_err(|error| AuthApiError::internal(error.to_string()))
+        .map_err(|error| AuthApiError::internal(error.to_string()))?;
+    for message in &mut messages {
+        if message.role == "assistant" {
+            message.content = extract_coaching_issues(&message.content).0;
+        }
+    }
+    Ok(Json(messages))
 }
 
 pub async fn clear_history(
@@ -1555,6 +1573,13 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].issue_key, "defense_overpush");
         assert_eq!(issues[0].severity, 0.8);
+
+        let unclosed = r#"先换位再接第二枪。
+<coaching_issues> [{"issue_key":"post_kill_positioning","category":"positioning","title":"击杀后未换位","severity":0.68,"confidence":0.72}]"#;
+        let (clean, issues) = extract_coaching_issues(unclosed);
+        assert_eq!(clean, "先换位再接第二枪。");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].issue_key, "post_kill_positioning");
     }
 
     #[test]
