@@ -18,13 +18,6 @@ use vrf_container::{
     parse_event_chunk, parse_known_event_payload, parse_preamble, parse_replay_data_meta,
 };
 
-const CHINA_BRANCH: &str = "++Ares-Core+release-china-13.05";
-const GLOBAL_BRANCH: &str = "++Ares-Core+release-13.05";
-const CHINA_BUILD_CHANGELIST: u32 = 5_350_608;
-const GLOBAL_BUILD_CHANGELIST: u32 = 5_350_494;
-const CHINA_HEADER_CHANGELIST: u32 = 2_152_834_256;
-const GLOBAL_HEADER_CHANGELIST: u32 = 2_152_834_142;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbedRegion {
@@ -112,80 +105,6 @@ pub struct ProbeReport {
 pub struct ProbePlayerLoadout {
     pub subject: String,
     pub character_id: String,
-}
-
-pub fn convert_china_to_global(data: &[u8]) -> Result<Vec<u8>, ProbeError> {
-    let china_branch_bytes = CHINA_BRANCH.as_bytes();
-    let global_branch_bytes = GLOBAL_BRANCH.as_bytes();
-    let china_fstring_len = (china_branch_bytes.len() as i32 + 1).to_le_bytes();
-    let global_fstring_len = (global_branch_bytes.len() as i32 + 1).to_le_bytes();
-
-    let mut branch_offset = None;
-    let mut offset = 0;
-    while offset + 4 + china_branch_bytes.len() < data.len() {
-        if data[offset..offset + 4] == china_fstring_len
-            && &data[offset + 4..offset + 4 + china_branch_bytes.len()] == china_branch_bytes
-            && data[offset + 4 + china_branch_bytes.len()] == 0
-        {
-            branch_offset = Some(offset);
-            break;
-        }
-        offset += 1;
-    }
-    let branch_offset = branch_offset.ok_or(ProbeError::Conversion(
-        "China branch FString not found in replay file".to_owned(),
-    ))?;
-
-    let china_branch_end = branch_offset + 4 + china_branch_bytes.len() + 1;
-    let global_branch_end = branch_offset + 4 + global_branch_bytes.len() + 1;
-
-    let mut output = Vec::with_capacity(
-        data.len() - (china_branch_end - branch_offset) + (global_branch_end - branch_offset),
-    );
-    output.extend_from_slice(&data[..branch_offset]);
-    output.extend_from_slice(&global_fstring_len);
-    output.extend_from_slice(global_branch_bytes);
-    output.push(0);
-    output.extend_from_slice(&data[china_branch_end..]);
-
-    let china_build_cl_bytes = CHINA_BUILD_CHANGELIST.to_le_bytes();
-    let global_build_cl_bytes = GLOBAL_BUILD_CHANGELIST.to_le_bytes();
-    let china_header_cl_bytes = CHINA_HEADER_CHANGELIST.to_le_bytes();
-    let global_header_cl_bytes = GLOBAL_HEADER_CHANGELIST.to_le_bytes();
-
-    replace_u32_in_range(
-        &mut output,
-        &china_build_cl_bytes,
-        &global_build_cl_bytes,
-        0,
-        700,
-    );
-    replace_u32_in_range(
-        &mut output,
-        &china_header_cl_bytes,
-        &global_header_cl_bytes,
-        0,
-        700,
-    );
-
-    Ok(output)
-}
-
-fn replace_u32_in_range(
-    data: &mut [u8],
-    needle: &[u8; 4],
-    replacement: &[u8; 4],
-    start: usize,
-    end: usize,
-) {
-    let search_end = end.min(data.len()).saturating_sub(3);
-    let mut offset = start;
-    while offset < search_end {
-        if &data[offset..offset + 4] == needle {
-            data[offset..offset + 4].copy_from_slice(replacement);
-        }
-        offset += 1;
-    }
 }
 
 pub fn probe_file(path: &Path) -> Result<ProbeReport, ProbeError> {

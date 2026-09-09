@@ -10,6 +10,7 @@ $parserRoot = Join-Path $projectRoot '.external\ValorantReplayParser'
 $parserProject = Join-Path $parserRoot 'src\CliReader\CliReader.csproj'
 $parserMarker = Join-Path $parserRoot 'VALCOACH_TESTED_COMMIT.txt'
 $pinnedParserCommit = 'b51d67423b7b4952d59051cf91e55efa1c42da05'
+$parserMarkerVersion = "$pinnedParserCommit|valcoach-cn1305-production-v2"
 $webRoot = Join-Path $projectRoot 'web'
 $backend = $null
 $backendExecutable = Join-Path $projectRoot 'target\debug\valcoach-server.exe'
@@ -63,7 +64,7 @@ function Test-ParserReady {
         return $false
     }
 
-    return (Get-Content -LiteralPath $parserMarker -Raw).Trim() -eq $pinnedParserCommit
+    return (Get-Content -LiteralPath $parserMarker -Raw).Trim() -eq $parserMarkerVersion
 }
 
 if (-not $SkipParserSetup -and -not (Test-ParserReady)) {

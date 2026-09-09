@@ -2,9 +2,7 @@
 param(
     [string]$ParserDirectory,
     [switch]$Refresh,
-    [switch]$SkipTests,
-    [switch]$ApplyCn1300Alias,
-    [switch]$ApplyCn1305Alias
+    [switch]$SkipTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +12,7 @@ if ([string]::IsNullOrWhiteSpace($ParserDirectory)) {
     $ParserDirectory = Join-Path $PSScriptRoot '..\.external\ValorantReplayParser'
 }
 $pinnedParserCommit = 'b51d67423b7b4952d59051cf91e55efa1c42da05'
+$parserMarkerVersion = "$pinnedParserCommit|valcoach-cn1305-production-v2"
 $gitNetworkOptions = @('-c', 'http.version=HTTP/1.1')
 
 function Test-LocalTcpPort {
@@ -148,44 +147,15 @@ $valcoachPatch = Join-Path $PSScriptRoot '..\patches\valorant_parser_valcoach_pr
 if (-not (Test-Path -LiteralPath $valcoachPatch)) {
     throw "ValCoach export profile patch was not found: $valcoachPatch"
 }
-
 $valcoachPatchAlreadyApplied = Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--reverse', '--check', $valcoachPatch)
 if (-not $valcoachPatchAlreadyApplied) {
     if (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--check', $valcoachPatch))) {
-        throw 'ValCoach export profile patch cannot be applied cleanly; use a clean pinned Parser checkout.'
+        throw 'ValCoach production patch cannot be applied cleanly; use a clean pinned Parser checkout.'
     }
-    Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $valcoachPatch) -FailureMessage 'Failed to apply the ValCoach export profile patch.'
-    Write-Host 'Applied ValCoach compact export profile.'
+    Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $valcoachPatch) -FailureMessage 'Failed to apply the ValCoach production patch.'
+    Write-Host 'Applied the ValCoach profile and dedicated China 13.05 transform.'
 } else {
-    Write-Host 'ValCoach compact export profile is already applied.'
-}
-
-if ($ApplyCn1300Alias) {
-    $aliasPatch = Join-Path $PSScriptRoot '..\patches\valorant_parser_cn_13_00_alias.patch'
-    if (-not (Test-Path -LiteralPath $aliasPatch)) {
-        throw "CN 13.00 alias patch was not found: $aliasPatch"
-    }
-
-    if (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--check', $aliasPatch))) {
-        throw 'CN 13.00 alias patch cannot be applied cleanly; inspect the pinned Parser checkout before continuing.'
-    }
-
-    Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $aliasPatch) -FailureMessage 'Failed to apply CN 13.00 alias patch.'
-    Write-Warning 'Applied experimental CN 13.00 alias patch. Validate a real replay before using its output.'
-}
-
-if ($ApplyCn1305Alias) {
-    $cn1305Patch = Join-Path $PSScriptRoot '..\patches\valorant_parser_cn_13_05_alias.patch'
-    $cn1305AlreadyApplied = Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--reverse', '--check', $cn1305Patch)
-    if (-not $cn1305AlreadyApplied) {
-        if (-not (Test-GitCommand -Arguments @('-C', $parserPath, 'apply', '--check', $cn1305Patch))) {
-            throw 'CN 13.05 alias patch cannot be applied cleanly; inspect the pinned Parser checkout.'
-        }
-        Invoke-GitCommand -Arguments @('-C', $parserPath, 'apply', $cn1305Patch) -FailureMessage 'Failed to apply CN 13.05 alias patch.'
-        Write-Warning 'Applied experimental CN 13.05 alias; it must pass full-file validation before production use.'
-    } else {
-        Write-Host 'Experimental CN 13.05 alias is already applied.'
-    }
+    Write-Host 'ValCoach profile and China 13.05 production transform are already applied.'
 }
 
 Write-Host "Parser commit: $sha"
@@ -203,7 +173,7 @@ try {
 
     # The launcher uses this marker to distinguish a complete setup from an
     # interrupted clone, patch, restore or build.
-    $sha | Set-Content -LiteralPath (Join-Path $parserPath 'VALCOACH_TESTED_COMMIT.txt') -NoNewline
+    $parserMarkerVersion | Set-Content -LiteralPath (Join-Path $parserPath 'VALCOACH_TESTED_COMMIT.txt') -NoNewline
 } finally {
     Pop-Location
 }

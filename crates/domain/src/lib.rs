@@ -201,6 +201,26 @@ impl ReplayCapabilities {
         }
     }
 
+    pub fn china_13_05() -> Self {
+        Self {
+            metadata: CapabilityLevel::Supported,
+            container: CapabilityLevel::Supported,
+            server_events: CapabilityLevel::Supported,
+            movement: CapabilityLevel::Supported,
+            actors: CapabilityLevel::Supported,
+            player_identity: CapabilityLevel::Supported,
+            gunplay: CapabilityLevel::Supported,
+            combat: CapabilityLevel::Supported,
+            abilities: CapabilityLevel::Supported,
+            economy: CapabilityLevel::Partial,
+            spike_state: CapabilityLevel::Supported,
+            rounds: CapabilityLevel::Supported,
+            game_state: CapabilityLevel::Partial,
+            world_state: CapabilityLevel::Unsupported,
+            checkpoints: CapabilityLevel::Partial,
+        }
+    }
+
     pub fn unknown_branch() -> Self {
         Self {
             metadata: CapabilityLevel::Supported,

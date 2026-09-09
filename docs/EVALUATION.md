@@ -4,10 +4,11 @@
 
 The production fixture gate is the ignored integration test
 `global_13_05_job_reaches_ready_and_persists_a_match_summary`. It runs the common probe and pinned
-C# Parser, validates Replay Bundle v1, and verifies transactional persistence of 138,065 event
-records and 165,047 movement records. The China 13.05 test validates 239 server events and a 5v5
-roster while keeping unavailable ReplayData capabilities explicit; neither branch silently falls
-back to a Global transform.
+C# Parser, validates Replay Bundle v1, and verifies transactional persistence of non-empty semantic
+events and product movement samples without relying on one fixture's incidental record totals. The
+China 13.05 gate additionally checks the dedicated `china-13.05` transform manifest, a 5v5 roster,
+full-action movement and zero movement decode errors; neither branch silently falls back to another
+region's transform.
 
 ## B. Deterministic metrics
 
@@ -20,8 +21,8 @@ Movement V1 is assessed from observed samples only:
 
 Unit tests cover ordering, path distance, velocity averaging, missing velocity (`partial`, not
 zero), and nearest-observed-sample selection without interpolation. Gunplay, team spacing, rounds,
-death context and trading stay unavailable/partial unless a future complete replay exposes the
-needed trustworthy data.
+death context and trading remain capability-gated and are only exposed when the parser manifest and
+semantic layer contain the required trustworthy data.
 
 ## C. Agent evaluation
 

@@ -22,7 +22,10 @@ use uuid::Uuid;
 use valcoach_db::{Database, ParseJobRecord};
 use valcoach_domain::{ReplayInput, ReplayRegion};
 use valcoach_metrics::summarize_movement;
-use valcoach_replay_adapter::{ReplayDataSource, ReplaySourceError, ValorantReplayParserSource};
+use valcoach_replay_adapter::{
+    CHINA_13_05_BRANCH, ChinaVrfSource, ReplayDataSource, ReplaySourceError,
+    ValorantReplayParserSource,
+};
 use valcoach_vrf_probe::{ProbeError, ProbedRegion, probe_file, write_probe_artifacts};
 
 use crate::{
@@ -78,6 +81,12 @@ struct BundleRecordCounts {
     server_events: u64,
     normalized_events: u64,
     movement_samples: u64,
+    movement_records: u64,
+    movement_rpc_blocks: u64,
+    shots: u64,
+    abilities: u64,
+    combat: u64,
+    dynamic_entities: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -91,12 +100,27 @@ struct BundleIntegrity {
     event_trailing_bytes: u64,
     checkpoint_trailing_bytes: u64,
     replay_data_trailing_bytes: u64,
+    movement_decode_errors: Option<u64>,
+    movement_leftover_bits: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct ParserDiagnostics {
+    replay_build: String,
+    region: String,
+    transform_id: String,
+    decompressed_bytes: u64,
     stats: ParserStats,
+    pipeline: ParserPipeline,
     counts: ParserCounts,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ParserPipeline {
+    replay_data_chunk_count: u64,
+    demo_frame_count: u64,
+    playback_packet_count: u64,
+    malformed_payload_count: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +132,15 @@ struct ParserStats {
 #[derive(Debug, Clone, Deserialize)]
 struct ParserCounts {
     undecoded_export_groups: u64,
+    movement_records: u64,
+    movement_rpc_blocks: u64,
+    movement_decode_errors: u64,
+    movement_leftover_bits: u64,
+    valorant_shot_received: u64,
+    dynamic_character_entities: u64,
+    unknown_dynamic_entities: u64,
+    abilities: u64,
+    combat: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,14 +418,19 @@ impl JobManager {
                     ReplayRegion::Global
                 }
                 ProbedRegion::China => {
+                    if probe.replay.branch != CHINA_13_05_BRANCH {
+                        return Err(JobManagerError::Source(
+                            ReplaySourceError::UnsupportedTransform {
+                                branch: probe.replay.branch,
+                            },
+                        ));
+                    }
                     write_bundle_manifest(
                         &probe_directory,
                         &probe,
                         "pending",
-                        "China 13.05 detected; attempting full parse with alias transform",
-                        valcoach_domain::ReplayCapabilities::global_fixture(
-                            valcoach_domain::CapabilityLevel::Partial,
-                        ),
+                        "China 13.05 detected; awaiting the dedicated China payload transform",
+                        valcoach_domain::ReplayCapabilities::china_13_05(),
                         BundleRecordCounts {
                             server_events: probe.chunks.events,
                             ..BundleRecordCounts::default()
@@ -431,7 +469,7 @@ impl JobManager {
                 &job_id,
                 "parsing",
                 if region == ReplayRegion::China {
-                    "Attempting China 13.05 full parse with alias transform"
+                    "Running the dedicated China 13.05 payload transform"
                 } else {
                     "Running local replay parser"
                 },
@@ -439,71 +477,22 @@ impl JobManager {
                 None,
             )
             .await?;
-            let (mut replay, parser_diagnostics) = if region == ReplayRegion::China {
-                let parser_result = self
-                    .parser_source
-                    .ingest(
-                        ReplayInput::Vrf {
-                            path: replay_path.clone(),
-                            region,
-                            output_directory: output_directory.clone(),
-                        },
-                        cancel.clone(),
-                    )
-                    .await;
-                match parser_result {
-                    Ok(mut replay) => {
-                        let diagnostics = read_parser_diagnostics(&output_directory).await?;
-                        promote_parser_artifacts(&mut replay, &output_directory, &probe_directory).await?;
-                        (replay, Some(diagnostics))
-                    }
-                    Err(error) => {
-                        tracing::warn!(
-                            job_id = %job_id,
-                            error = %error,
-                            "C# parser failed on China replay; falling back to partial import"
-                        );
-                        let parser_events = probe_directory.join("parser_events.ndjson");
-                        let movement = probe_directory.join("movement.ndjson");
-                        tokio::fs::write(&parser_events, b"").await?;
-                        tokio::fs::write(&movement, b"").await?;
-                        (
-                            valcoach_domain::ParsedReplay {
-                                metadata: valcoach_domain::ReplayMetadata {
-                                    replay_id: probe.replay.internal_replay_id.clone(),
-                                    branch: Some(probe.replay.branch.clone()),
-                                    map: probe.replay.map_asset_path.clone(),
-                                    duration_ms: Some(i64::from(probe.replay.duration_ms)),
-                                },
-                                bundle: valcoach_domain::ParsedBundle {
-                                    events_path: parser_events,
-                                    movement_path: movement,
-                                    server_events_path: Some(probe_directory.join("server_events.ndjson")),
-                                },
-                                source_name: "valcoach_common_probe".to_owned(),
-                                capabilities: valcoach_domain::ReplayCapabilities::china_container_only(),
-                                summary: valcoach_domain::ParsedReplaySummary::default(),
-                            },
-                            None,
-                        )
-                    }
-                }
-            } else {
-                let mut replay = self
-                    .parser_source
-                    .ingest(
-                        ReplayInput::Vrf {
-                            path: replay_path,
-                            region,
-                            output_directory: output_directory.clone(),
-                        },
-                        cancel.clone(),
-                    )
-                    .await?;
-                let diagnostics = read_parser_diagnostics(&output_directory).await?;
-                promote_parser_artifacts(&mut replay, &output_directory, &probe_directory).await?;
-                (replay, Some(diagnostics))
+            let parser_input = ReplayInput::Vrf {
+                path: replay_path,
+                region,
+                output_directory: output_directory.clone(),
             };
+            let mut replay = if region == ReplayRegion::China {
+                ChinaVrfSource::new(self.parser_source.clone(), probe.replay.branch.clone())
+                    .ingest(parser_input, cancel.clone())
+                    .await?
+            } else {
+                self.parser_source
+                    .ingest(parser_input, cancel.clone())
+                    .await?
+            };
+            let parser_diagnostics = Some(read_parser_diagnostics(&output_directory).await?);
+            promote_parser_artifacts(&mut replay, &output_directory, &probe_directory).await?;
             replay.metadata.replay_id = probe.replay.internal_replay_id.clone();
             replay.metadata.branch = Some(probe.replay.branch.clone());
             replay.metadata.map = probe.replay.map_asset_path.clone();
@@ -511,11 +500,9 @@ impl JobManager {
             write_bundle_manifest(
                 &probe_directory,
                 &probe,
-                if region == ReplayRegion::China && replay.summary.event_count == 0 { "partial" } else { "complete" },
-                if region == ReplayRegion::China && replay.summary.event_count == 0 {
-                    "China 13.05 server timeline and roster metadata imported; ReplayData transform remains fail-closed"
-                } else if region == ReplayRegion::China {
-                    "China 13.05 full parse via Global 13.05 alias transform"
+                "complete",
+                if region == ReplayRegion::China {
+                    "Verified China 13.05 export using the dedicated China payload transform"
                 } else {
                     "Verified ValorantReplayParser 13.05 export using the valcoach semantic profile"
                 },
@@ -524,6 +511,7 @@ impl JobManager {
                     server_events: probe.chunks.events,
                     normalized_events: replay.summary.event_count,
                     movement_samples: replay.summary.movement_count,
+                    ..BundleRecordCounts::default()
                 },
                 parser_diagnostics,
             )
@@ -561,16 +549,19 @@ impl JobManager {
                     .update_match_played_at(&match_id, played_at)
                     .await?;
             }
-            let probe_players = probe.player_loadouts.iter()
-                .map(|player| (player.subject.clone(), agent_name_from_uuid(&player.character_id).to_owned()))
+            let probe_players = probe
+                .player_loadouts
+                .iter()
+                .map(|player| {
+                    (
+                        player.subject.clone(),
+                        agent_name_from_uuid(&player.character_id).to_owned(),
+                    )
+                })
                 .collect::<Vec<_>>();
-            let alias_full_parse = region == ReplayRegion::China
-                && replay.summary.event_count > 0;
-            if region == ReplayRegion::China && !alias_full_parse {
-                self.database.insert_probe_players(&user_id, &match_id, &probe_players).await?;
-            } else {
-                self.database.apply_probe_agent_names(&user_id, &match_id, &probe_players).await?;
-            }
+            self.database
+                .apply_probe_agent_names(&user_id, &match_id, &probe_players)
+                .await?;
             if let Some(diagnostics) = self.database.semantic_diagnostics(&match_id).await? {
                 tokio::fs::write(
                     probe_directory.join("semantic_diagnostics.json"),
@@ -590,9 +581,8 @@ impl JobManager {
             if cancel.is_cancelled() {
                 return Err(JobManagerError::Cancelled);
             }
-            if region != ReplayRegion::China || alias_full_parse {
-                self.compute_movement_metrics(&user_id, &match_id, &cancel).await?;
-            }
+            self.compute_movement_metrics(&user_id, &match_id, &cancel)
+                .await?;
             self.transition(
                 &events,
                 &job_id,
@@ -727,7 +717,7 @@ async fn write_bundle_manifest(
     payload_status: &str,
     payload_detail: &str,
     capabilities: valcoach_domain::ReplayCapabilities,
-    records: BundleRecordCounts,
+    mut records: BundleRecordCounts,
     parser_diagnostics: Option<ParserDiagnostics>,
 ) -> Result<(), JobManagerError> {
     let dialect = match probe.replay.region {
@@ -749,6 +739,15 @@ async fn write_bundle_manifest(
         (Some(minimum), Some(maximum)) => u64::from(maximum.saturating_sub(minimum)),
         _ => 0,
     };
+    if let Some(diagnostics) = parser_diagnostics.as_ref() {
+        records.movement_records = diagnostics.counts.movement_records;
+        records.movement_rpc_blocks = diagnostics.counts.movement_rpc_blocks;
+        records.shots = diagnostics.counts.valorant_shot_received;
+        records.abilities = diagnostics.counts.abilities;
+        records.combat = diagnostics.counts.combat;
+        records.dynamic_entities = diagnostics.counts.dynamic_character_entities
+            + diagnostics.counts.unknown_dynamic_entities;
+    }
     let mut artifacts = vec![
         "manifest.json".to_owned(),
         "probe.json".to_owned(),
@@ -784,6 +783,12 @@ async fn write_bundle_manifest(
         event_trailing_bytes: probe.integrity.event_trailing_bytes,
         checkpoint_trailing_bytes: probe.integrity.checkpoint_trailing_bytes,
         replay_data_trailing_bytes: probe.integrity.replay_data_trailing_bytes,
+        movement_decode_errors: parser_diagnostics
+            .as_ref()
+            .map(|value| value.counts.movement_decode_errors),
+        movement_leftover_bits: parser_diagnostics
+            .as_ref()
+            .map(|value| value.counts.movement_leftover_bits),
     };
     let manifest = BundleManifest {
         schema_version: 1,
@@ -796,13 +801,40 @@ async fn write_bundle_manifest(
             status: payload_status.to_owned(),
             detail: payload_detail.to_owned(),
         },
-        validation_backends: vec![BundleBackend {
-            name: "yakisoba0728/vrfkit:vrf-container".to_owned(),
-            revision: "a73ee3aab474e38af4de7157fb8d94b34bee0963".to_owned(),
-            dialect: "common-container-v7".to_owned(),
-            status: "complete".to_owned(),
-            detail: "Region-independent container and server-event probe".to_owned(),
-        }],
+        validation_backends: {
+            let mut backends = vec![BundleBackend {
+                name: "yakisoba0728/vrfkit:vrf-container".to_owned(),
+                revision: "a73ee3aab474e38af4de7157fb8d94b34bee0963".to_owned(),
+                dialect: "common-container-v7".to_owned(),
+                status: "complete".to_owned(),
+                detail: "Region-independent container and server-event probe".to_owned(),
+            }];
+            if let Some(diagnostics) = parser_diagnostics.as_ref() {
+                backends.push(BundleBackend {
+                    name: "ValorantReplayParser manifest".to_owned(),
+                    revision: "runtime".to_owned(),
+                    dialect: diagnostics.transform_id.clone(),
+                    status: if diagnostics.pipeline.malformed_payload_count == 0
+                        && diagnostics.counts.movement_decode_errors == 0
+                    {
+                        "complete"
+                    } else {
+                        "degraded"
+                    }
+                    .to_owned(),
+                    detail: format!(
+                        "{} / {}: {} ReplayData chunks, {} decompressed bytes, {} frames, {} packets",
+                        diagnostics.region,
+                        diagnostics.replay_build,
+                        diagnostics.pipeline.replay_data_chunk_count,
+                        diagnostics.decompressed_bytes,
+                        diagnostics.pipeline.demo_frame_count,
+                        diagnostics.pipeline.playback_packet_count,
+                    ),
+                });
+            }
+            backends
+        },
         capabilities,
         records,
         integrity,
@@ -1051,7 +1083,9 @@ mod tests {
                         .await
                         .expect("movement count");
                 assert_eq!(event_count, 138_065);
-                assert_eq!(movement_count, 165_047);
+                // Product movement contains primary players only; dynamic ability
+                // entities remain available solely in the optional full parser stream.
+                assert_eq!(movement_count, 157_709);
                 let roster: Vec<(String, i64)> = sqlx::query_as(
                     "SELECT team, COUNT(*) FROM players WHERE match_id = ? GROUP BY team ORDER BY team",
                 )
@@ -1135,7 +1169,7 @@ mod tests {
                 assert_eq!(first_round, 1);
                 assert_eq!(deaths, 161);
                 assert_eq!(selected_shots, 304);
-                assert_eq!(selected_movement, 16_762);
+                assert_eq!(selected_movement, 16_634);
                 assert_eq!(selected_kills, 18);
                 assert_eq!(selected_deaths, 17);
                 let winners: i64 = sqlx::query_scalar(
@@ -1256,7 +1290,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "reads the full China 13.05 fixture"]
-    async fn china_13_05_job_imports_common_timeline_and_roster() {
+    async fn china_13_05_job_imports_full_action_timeline() {
         let storage = tempdir().expect("temporary storage");
         let database_url = format!(
             "sqlite://{}",
@@ -1298,7 +1332,7 @@ mod tests {
             .await
             .expect("queue fixture");
 
-        for _ in 0..100 {
+        for _ in 0..1800 {
             let status = manager
                 .find_for_user(&job.job_id, "user-cn")
                 .await
@@ -1326,15 +1360,25 @@ mod tests {
                 assert_eq!(rounds, 22);
                 assert_eq!(players, 10);
                 assert_eq!(diagnostics["players"]["resolved"], 10);
-                assert_eq!(diagnostics["movement"]["semantic_rows"], 0);
+                assert!(
+                    diagnostics["movement"]["semantic_rows"]
+                        .as_u64()
+                        .is_some_and(|count| count > 100_000),
+                    "China fixture must persist product movement samples"
+                );
                 let manifest: serde_json::Value = serde_json::from_slice(
                     &tokio::fs::read(storage.path().join("jobs/job-cn/bundle/manifest.json"))
                         .await
                         .expect("bundle manifest"),
                 )
                 .expect("valid manifest");
-                assert_eq!(manifest["backend"]["status"], "partial");
+                assert_eq!(manifest["backend"]["status"], "complete");
+                assert_eq!(manifest["backend"]["dialect"], "china-13.05");
                 assert_eq!(manifest["records"]["server_events"], 239);
+                assert!(manifest["records"]["movement_records"].as_u64().unwrap() > 2_200_000);
+                assert!(manifest["records"]["movement_rpc_blocks"].as_u64().unwrap() > 279_000);
+                assert_eq!(manifest["integrity"]["movement_decode_errors"], 0);
+                assert_eq!(manifest["integrity"]["movement_leftover_bits"], 0);
                 return;
             }
             assert_ne!(
@@ -1344,6 +1388,6 @@ mod tests {
             );
             sleep(Duration::from_millis(100)).await;
         }
-        panic!("China fixture did not reach ready within 10 seconds");
+        panic!("China fixture did not reach ready within 180 seconds");
     }
 }

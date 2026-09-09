@@ -13,7 +13,7 @@ use valcoach_domain::{ParsedReplay, ReplayCapabilities, ReplayInput};
 
 pub use bundle::NormalizedRecord;
 pub use bundle::ParsedBundleSource;
-pub use china::ChinaVrfSource;
+pub use china::{CHINA_13_05_BRANCH, ChinaVrfSource};
 pub use parser_source::ValorantReplayParserSource;
 
 #[async_trait]
@@ -60,4 +60,6 @@ pub enum ReplaySourceError {
     TimedOut { seconds: u64 },
     #[error("parser process failed with exit code {exit_code:?}")]
     ParserFailed { exit_code: Option<i32> },
+    #[error("invalid parser manifest at {path}: {reason}")]
+    InvalidParserManifest { path: PathBuf, reason: String },
 }

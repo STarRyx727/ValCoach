@@ -26,7 +26,7 @@ duration, map and network versions. File names are never used as replay identity
 
 `backend` declares the primary Parser name, pinned revision, exact dialect, terminal status and
 detail. `validation_backends` records the common container oracle. Current dialects are
-`global-13.05`, `china-13.05`, and `unknown`; only the first has a complete payload backend.
+`global-13.05`, `china-13.05`, and `unknown`; the two exact 13.05 dialects have complete payload backends.
 
 `capabilities` uses `complete`, `partial`, or `unsupported` for metadata, container, server events,
 movement, actors, player identity, gunplay, combat, abilities, economy, spike state, rounds, game
@@ -34,9 +34,10 @@ state, world state and checkpoints. Checkpoint `partial` currently means metadat
 must query these values before answering or computing; unavailable values must never be filled with
 zero.
 
-`records` contains exact counts for server events, normalized parser events and movement samples.
+`records` contains counts for server events, normalized parser events, product movement samples,
+decoded movement records/RPCs, shots and dynamic entities.
 `integrity` includes malformed packets, partial errors, undecoded groups, server timeline coverage,
-valid/invalid server Event payloads, and trailing-byte counts. Parser-specific values are `null`
+valid/invalid server Event payloads, movement decode errors/leftover bits and trailing-byte counts. Parser-specific values are `null`
 when the payload backend did not run.
 
 ## NDJSON records
@@ -47,12 +48,15 @@ when the payload backend did not run.
 - `parser_events.ndjson`: stable generic records requiring `type` and integer `time_ms`; raw source
   GUID identities remain distinct.
 - `movement.ndjson`: `remote_character_movement` records requiring `time_ms`, raw identity fields,
-  position and optional velocity. Global production output is sampled at 10 Hz per character GUID.
+  position and optional velocity. Production output is sampled at 10 Hz per primary player GUID;
+  dynamic character/ability entities stay out of the product stream.
+- `movement_full.ndjson.gz`: optional parser-only audit artifact containing every decoded movement
+  record, including dynamic entities; it is not persisted to ValCoach SQLite.
 - `diagnostics.json`: third-party diagnostics retained for audit, not a stable application schema.
 
 ## Validation
 
 Bundle validation is implemented in the Rust replay adapter. It checks declared artifacts, required
-fields, timestamps, finite numbers and record structure while ingesting the data. A complete Global
-production Bundle additionally requires zero malformed packets. Recoverable partial errors and
+fields, timestamps, finite numbers and record structure while ingesting the data. A complete 13.05
+production Bundle additionally requires the exact region transform and zero malformed packets. Recoverable partial errors and
 undecoded groups remain visible and lower the relevant capabilities.
