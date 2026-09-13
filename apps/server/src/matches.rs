@@ -5,7 +5,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use valcoach_db::{
-    MatchMetricRecord, MatchRecord, PlayerPerformanceRecord, PlayerRecord, ValorantAccountRecord,
+    MatchMetricRecord, MatchPlayerSelectionRecord, MatchRecord, PlayerPerformanceRecord,
+    PlayerRecord,
 };
 
 use crate::{
@@ -121,7 +122,7 @@ pub async fn bind_player(
     session: tower_sessions::Session,
     Path(match_id): Path<String>,
     Json(request): Json<BindPlayerRequest>,
-) -> Result<Json<ValorantAccountRecord>, AuthApiError> {
+) -> Result<Json<MatchPlayerSelectionRecord>, AuthApiError> {
     let user_id = require_user_id(&state.auth, &session).await?;
     if request.player_id.trim().is_empty() {
         return Err(AuthApiError::bad_request("player_id is required"));
@@ -129,7 +130,7 @@ pub async fn bind_player(
     state
         .auth
         .database
-        .bind_player_to_account(&user_id, &match_id, &request.player_id)
+        .bind_player_for_match(&user_id, &match_id, &request.player_id)
         .await
         .map(Json)
         .map_err(|error| match error {
@@ -148,7 +149,7 @@ pub async fn unbind_player(
     state
         .auth
         .database
-        .unbind_player_from_account(&user_id, &match_id, &request.player_id)
+        .unbind_player_for_match(&user_id, &match_id, &request.player_id)
         .await
         .map_err(|error| match error {
             valcoach_db::DatabaseError::PlayerNotFound => AuthApiError::unauthorized(),

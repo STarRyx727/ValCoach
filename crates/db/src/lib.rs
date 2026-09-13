@@ -133,12 +133,9 @@ pub struct MatchMetricRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ValorantAccountRecord {
-    pub id: String,
-    pub user_id: String,
-    pub region: String,
-    pub subject_id: Option<String>,
-    pub display_name: Option<String>,
+pub struct MatchPlayerSelectionRecord {
+    pub match_id: String,
+    pub player_id: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -778,9 +775,9 @@ impl Database {
             SELECT players.id, players.match_id, players.stable_player_id, players.display_name,
                    players.team, players.agent_name, players.player_slot,
                    EXISTS(
-                       SELECT 1 FROM valorant_accounts
-                       WHERE valorant_accounts.user_id = matches.user_id
-                         AND valorant_accounts.subject_id = players.stable_player_id
+                       SELECT 1 FROM match_player_selections
+                       WHERE match_player_selections.match_id = players.match_id
+                         AND match_player_selections.player_id = players.id
                    )
             FROM players
             JOIN matches ON matches.id = players.match_id
@@ -1941,79 +1938,45 @@ impl Database {
             .collect())
     }
 
-    pub async fn bind_player_to_account(
+    pub async fn bind_player_for_match(
         &self,
         user_id: &str,
         match_id: &str,
         player_id: &str,
-    ) -> Result<ValorantAccountRecord, DatabaseError> {
-        let stable_player_id = sqlx::query_scalar::<_, Option<String>>(
-            r#"
-            SELECT players.stable_player_id
-            FROM players
-            JOIN matches ON matches.id = players.match_id
-            WHERE players.id = ? AND players.match_id = ? AND matches.user_id = ?
-            "#,
+    ) -> Result<MatchPlayerSelectionRecord, DatabaseError> {
+        let result = sqlx::query(
+            r#"INSERT INTO match_player_selections (match_id, player_id)
+               SELECT players.match_id, players.id
+               FROM players JOIN matches ON matches.id = players.match_id
+               WHERE players.id = ? AND players.match_id = ? AND matches.user_id = ?
+               ON CONFLICT(match_id) DO UPDATE SET player_id = excluded.player_id"#,
         )
         .bind(player_id)
         .bind(match_id)
         .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten()
-        .ok_or(DatabaseError::PlayerNotFound)?;
-        let account_id = format!("{user_id}:global:{stable_player_id}");
-
-        sqlx::query(
-            r#"DELETE FROM valorant_accounts
-               WHERE user_id = ? AND subject_id IN (
-                   SELECT stable_player_id FROM players
-                   WHERE match_id = ? AND stable_player_id IS NOT NULL
-               )"#,
-        )
-        .bind(user_id)
-        .bind(match_id)
         .execute(&self.pool)
         .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO valorant_accounts (id, user_id, region, subject_id, display_name)
-            VALUES (?, ?, 'global', ?, NULL)
-            ON CONFLICT(user_id, subject_id) WHERE subject_id IS NOT NULL
-            DO UPDATE SET region = excluded.region
-            "#,
-        )
-        .bind(&account_id)
-        .bind(user_id)
-        .bind(&stable_player_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(ValorantAccountRecord {
-            id: account_id,
-            user_id: user_id.to_owned(),
-            region: "global".to_owned(),
-            subject_id: Some(stable_player_id),
-            display_name: None,
+        if result.rows_affected() == 0 {
+            return Err(DatabaseError::PlayerNotFound);
+        }
+        Ok(MatchPlayerSelectionRecord {
+            match_id: match_id.to_owned(),
+            player_id: player_id.to_owned(),
         })
     }
 
-    pub async fn unbind_player_from_account(
+    pub async fn unbind_player_for_match(
         &self,
         user_id: &str,
         match_id: &str,
         player_id: &str,
     ) -> Result<(), DatabaseError> {
         let result = sqlx::query(
-            r#"DELETE FROM valorant_accounts
-               WHERE user_id = ? AND subject_id = (
-                   SELECT players.stable_player_id
-                   FROM players JOIN matches ON matches.id = players.match_id
-                   WHERE players.id = ? AND players.match_id = ? AND matches.user_id = ?
-               )"#,
+            r#"DELETE FROM match_player_selections
+               WHERE match_id = ? AND player_id = ?
+                 AND EXISTS (SELECT 1 FROM matches WHERE id = ? AND user_id = ?)"#,
         )
-        .bind(user_id)
+        .bind(match_id)
         .bind(player_id)
         .bind(match_id)
         .bind(user_id)
@@ -2032,14 +1995,10 @@ impl Database {
     ) -> Result<Option<String>, DatabaseError> {
         Ok(sqlx::query_scalar::<_, String>(
             r#"
-            SELECT players.id
-            FROM players
-            JOIN matches ON matches.id = players.match_id
-            JOIN valorant_accounts
-              ON valorant_accounts.user_id = matches.user_id
-             AND valorant_accounts.subject_id = players.stable_player_id
+            SELECT match_player_selections.player_id
+            FROM match_player_selections
+            JOIN matches ON matches.id = match_player_selections.match_id
             WHERE matches.user_id = ? AND matches.id = ?
-            ORDER BY valorant_accounts.id
             LIMIT 1
             "#,
         )
@@ -3437,6 +3396,143 @@ mod tests {
         assert!(matches!(
             database.create_user(&user).await,
             Err(super::DatabaseError::UsernameAlreadyExists)
+        ));
+    }
+
+    #[tokio::test]
+    async fn player_selection_is_independent_for_each_match() {
+        let database = Database::connect("sqlite::memory:")
+            .await
+            .expect("database");
+        for user_id in ["user-1", "user-2"] {
+            database
+                .create_user(&UserRecord {
+                    id: user_id.to_owned(),
+                    username: user_id.to_owned(),
+                    password_hash: "hash".to_owned(),
+                })
+                .await
+                .expect("user");
+        }
+        let replay = ParsedReplay {
+            metadata: ReplayMetadata {
+                replay_id: "fixture".to_owned(),
+                branch: None,
+                map: None,
+                duration_ms: None,
+            },
+            bundle: ParsedBundle {
+                events_path: "events.ndjson".into(),
+                movement_path: "movement.ndjson".into(),
+                server_events_path: None,
+            },
+            source_name: "fixture".to_owned(),
+            capabilities: ReplayCapabilities::global_fixture(
+                valcoach_domain::CapabilityLevel::Partial,
+            ),
+            summary: ParsedReplaySummary::default(),
+        };
+        let players = (0..10)
+            .map(|index| (format!("shared-subject-{index}"), "Sage".to_owned()))
+            .collect::<Vec<_>>();
+        for match_id in ["match-1", "match-2"] {
+            database
+                .insert_match_summary("user-1", match_id, &replay)
+                .await
+                .expect("match");
+            database
+                .insert_probe_players("user-1", match_id, &players)
+                .await
+                .expect("roster");
+        }
+        sqlx::query(
+            "INSERT INTO valorant_accounts (id, user_id, region, subject_id) VALUES ('legacy', 'user-1', 'global', 'shared-subject-0')",
+        )
+        .execute(database.pool())
+        .await
+        .expect("legacy account");
+        sqlx::query("DROP TABLE match_player_selections")
+            .execute(database.pool())
+            .await
+            .expect("simulate pre-migration database");
+        sqlx::raw_sql(include_str!(
+            "../migrations/0012_match_player_selections.sql"
+        ))
+        .execute(database.pool())
+        .await
+        .expect("backfill legacy selections");
+        for match_id in ["match-1", "match-2"] {
+            assert_eq!(
+                database
+                    .find_bound_player_for_match("user-1", match_id)
+                    .await
+                    .expect("migrated selection"),
+                Some(format!("{match_id}:player:shared-subject-0"))
+            );
+        }
+        sqlx::query("DELETE FROM match_player_selections")
+            .execute(database.pool())
+            .await
+            .expect("reset selections for independence checks");
+        let first_player = "match-1:player:shared-subject-0";
+        let replacement = "match-1:player:shared-subject-1";
+        let second_player = "match-2:player:shared-subject-0";
+
+        database
+            .bind_player_for_match("user-1", "match-1", first_player)
+            .await
+            .expect("select first match");
+        assert_eq!(
+            database
+                .find_bound_player_for_match("user-1", "match-2")
+                .await
+                .expect("second selection"),
+            None
+        );
+        database
+            .bind_player_for_match("user-1", "match-2", second_player)
+            .await
+            .expect("select second match");
+        database
+            .bind_player_for_match("user-1", "match-1", replacement)
+            .await
+            .expect("replace first selection");
+        assert_eq!(
+            database
+                .find_bound_player_for_match("user-1", "match-2")
+                .await
+                .expect("second selection after replacement")
+                .as_deref(),
+            Some(second_player)
+        );
+        assert_eq!(
+            database
+                .list_players_for_match_for_user("user-1", "match-1")
+                .await
+                .expect("first roster")
+                .iter()
+                .filter(|player| player.is_bound)
+                .map(|player| player.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![replacement]
+        );
+        database
+            .unbind_player_for_match("user-1", "match-1", replacement)
+            .await
+            .expect("clear first selection");
+        assert_eq!(
+            database
+                .find_bound_player_for_match("user-1", "match-2")
+                .await
+                .expect("second selection after unbind")
+                .as_deref(),
+            Some(second_player)
+        );
+        assert!(matches!(
+            database
+                .bind_player_for_match("user-2", "match-2", second_player)
+                .await,
+            Err(super::DatabaseError::PlayerNotFound)
         ));
     }
 

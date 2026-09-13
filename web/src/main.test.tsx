@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { CapabilityBadge, CoachPanel, SettingsModal, evidenceTypeLabel, stripCoachingIssues, summarizeCapabilities, type AgentStatus } from "./main";
+import { App, CapabilityBadge, CoachPanel, SettingsModal, evidenceTypeLabel, stripCoachingIssues, summarizeCapabilities, type AgentStatus } from "./main";
 
 const unconfigured: AgentStatus = {
   configured: false,
@@ -77,5 +77,41 @@ describe("critical UI flows", () => {
       max_output_tokens: 32768,
     });
     expect(onSaved).toHaveBeenCalledWith(configured);
+  });
+
+  it("does not display a stale match after switching to another replay", async () => {
+    const match = (id: string, map: string) => ({
+      id, parser_source: "fixture", note: "", played_at: "2026-09-13T00:00:00Z",
+      metadata: { replay_id: id, branch: null, map: `/Game/Maps/${map}/${map}`, duration_ms: 90_000 },
+      capabilities: {}, summary: { event_count: 0, movement_count: 0, has_shot_related_events: false },
+    });
+    const first = match("match-a", "CaseA");
+    const second = match("match-b", "CaseB");
+    let finishFirst!: (response: Response) => void;
+    const jsonResponse = (value: unknown) => new Response(JSON.stringify(value), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/matches/match-a") return new Promise<Response>((resolve) => { finishFirst = resolve; });
+      const value = path === "/api/auth/me" ? { id: "user-1", username: "demo" }
+        : path === "/api/matches" ? [first, second]
+        : path === "/api/matches/match-b" ? { ...second, players: [], metrics: [], scoreboard: [] }
+        : path === "/api/agent/status" ? unconfigured
+        : path === "/api/agent/usage" ? { input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_microusd: 0, priced_requests: 0 }
+        : path === "/game-content/catalog.json" ? { schema_version: 1, agents: [], maps: [], competitive_tiers: [] }
+        : path === "/api/maps" ? []
+        : { match_id: "match-b", player_id: null, map: null, duration_ms: null, player_agent: "", rounds: [] };
+      return Promise.resolve(jsonResponse(value));
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("CaseA")).toBeTruthy());
+    fireEvent.click(screen.getByText("CaseA").closest("button")!);
+    fireEvent.click(screen.getByText("CaseB").closest("button")!);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "CaseB" })).toBeTruthy());
+    await act(async () => finishFirst(jsonResponse({ ...first, players: [], metrics: [], scoreboard: [] })));
+    expect(screen.getByRole("heading", { name: "CaseB" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "CaseA" })).toBeNull();
   });
 });

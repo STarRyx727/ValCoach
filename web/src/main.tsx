@@ -175,10 +175,12 @@ function Auth({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
   return <main className="auth-shell"><section className="auth-panel"><Brand /><div className="auth-copy"><span className="eyebrow">LOCAL REPLAY COACH</span><h1>把每场对局<br />变成下一场的优势</h1><p>录像和分析数据只保存在你的电脑上。</p></div><form onSubmit={submit} className="stack-form"><label>用户名<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label><label>密码<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} /></label>{error && <p className="notice error">{error}</p>}<button className="primary" type="submit">{mode === "login" ? "进入控制台" : "创建账户"}</button></form><button className="text-button" onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "首次使用？创建本地账户" : "已有账户？返回登录"}</button></section><aside className="auth-art" aria-hidden="true"><div className="scan-ring"><span>V</span></div><b>READ THE ROUND</b></aside></main>;
 }
 
-function App() {
+export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
   const [detail, setDetail] = useState<MatchDetail | null>(null);
+  const activeMatchRef = useRef<string | null>(null);
+  const detailRequestRef = useRef(0);
   const [job, setJob] = useState<Job | null>(null);
   const [bundle, setBundle] = useState<ReplayBundle | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({ configured: false, provider: null, model: null, source: null, api_key_in_memory: false, max_output_tokens: null });
@@ -192,10 +194,21 @@ function App() {
   const refreshMatches = useCallback(async () => setMatches(await api<Match[]>("/api/matches")), []);
   const refreshAgentStatus = useCallback(async () => setAgentStatus(await api<AgentStatus>("/api/agent/status")), []);
   const refreshAgentUsage = useCallback(async () => setAgentUsage(await api<AgentUsage>("/api/agent/usage")), []);
-  const selectMatch = useCallback(async (matchId: string) => setDetail(await api<MatchDetail>(`/api/matches/${matchId}`)), []);
+  const refreshMatch = useCallback(async (matchId: string) => {
+    if (activeMatchRef.current !== matchId) return;
+    const requestId = ++detailRequestRef.current;
+    const next = await api<MatchDetail>(`/api/matches/${matchId}`);
+    if (activeMatchRef.current === matchId && detailRequestRef.current === requestId) setDetail(next);
+  }, []);
+  const selectMatch = useCallback(async (matchId: string) => {
+    activeMatchRef.current = matchId;
+    setDetail(null);
+    await refreshMatch(matchId);
+  }, [refreshMatch]);
   const deleteMatch = useCallback(async (matchId: string) => {
     await api(`/api/matches/${matchId}`, { method: "DELETE" });
     setMatches((prev) => prev.filter((match) => match.id !== matchId));
+    if (activeMatchRef.current === matchId) { activeMatchRef.current = null; detailRequestRef.current += 1; }
     setDetail((prev) => prev?.id === matchId ? null : prev);
   }, []);
 
@@ -231,6 +244,7 @@ function App() {
     data.set("played_at", new Date(file.lastModified).toISOString());
     try {
       const created = await api<JobCreated>("/api/replays", { method: "POST", body: data });
+      activeMatchRef.current = null; detailRequestRef.current += 1;
       setBundle(null); setDetail(null); setJob({ id: created.job_id, status: "queued", error_message: null, match_id: null });
     } catch (reason) { setError(reason instanceof Error ? reason.message : "上传失败"); }
   };
@@ -241,22 +255,24 @@ function App() {
   };
   const bind = async (player: Player) => {
     if (!detail) return;
-    await api(`/api/matches/${detail.id}/bind-player`, { method: player.is_bound ? "DELETE" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player_id: player.id }) });
-    await selectMatch(detail.id);
+    const matchId = detail.id;
+    await api(`/api/matches/${matchId}/bind-player`, { method: player.is_bound ? "DELETE" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ player_id: player.id }) });
+    await refreshMatch(matchId);
   };
   const saveNote = async (note: string) => {
     if (!detail) return;
-    await api(`/api/matches/${detail.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
-    await Promise.all([selectMatch(detail.id), refreshMatches()]);
+    const matchId = detail.id;
+    await api(`/api/matches/${matchId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
+    await Promise.all([refreshMatch(matchId), refreshMatches()]);
   };
-  const logout = async () => { await api("/api/auth/logout", { method: "POST" }); setUser(null); setMatches([]); setDetail(null); setAgentUsage(null); };
+  const logout = async () => { await api("/api/auth/logout", { method: "POST" }); activeMatchRef.current = null; detailRequestRef.current += 1; setUser(null); setMatches([]); setDetail(null); setAgentUsage(null); };
   if (!user) return <Auth onAuthenticated={setUser} />;
   const working = !!job && !["ready", "failed", "cancelled", "unsupported"].includes(job.status);
 
   return <main className="app-shell"><header className="topbar"><Brand compact /><div className="topbar-actions"><span className={`agent-pill ${agentStatus.configured ? "online" : ""}`}><i />{agentStatus.configured ? `${agentStatus.provider} · ${agentStatus.model}` : "教练未配置"}</span><button className={`secondary icon-button ${profileOpen ? "active" : ""}`} onClick={() => setProfileOpen((open) => !open)}>{profileOpen ? "返回对局" : "个人主页"}</button><button className="secondary icon-button" onClick={() => setSettingsOpen(true)}>模型设置</button><span className="user-chip">{user.username}</span><button className="text-button" onClick={logout}>退出</button></div></header>
     {profileOpen ? <ProfilePage content={gameContent} /> : <>
     <section className="upload-panel"><div><span className="eyebrow">NEW REVIEW</span><h1>导入一场录像</h1><p>选择国际服或国服的 .vrf 文件。解析在本机完成。</p></div><form onSubmit={upload} className="upload-form"><label className="file-picker"><input name="replay" type="file" accept=".vrf" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} /><span className="file-icon">↥</span><span><strong>{fileName || "选择录像文件"}</strong><small>{fileName ? "点击可更换文件" : "最大 100 MiB · .vrf"}</small></span></label><button className="primary" disabled={working}>{working ? "正在处理…" : "开始分析"}</button></form>{job && <JobProgress job={job} bundle={bundle} detail={job.match_id === detail?.id ? detail : null} onCancel={cancelJob} />}{error && <p className="notice error">{error}</p>}</section>
-    <section className="workspace"><aside className="match-list panel"><div className="section-heading"><div><span className="eyebrow">HISTORY</span><h2>最近对局</h2></div><span>{matches.length}</span></div>{matches.length === 0 ? <div className="empty-state"><b>暂无录像</b><p>上传完成后，对局会出现在这里。</p></div> : <ul>{matches.map((match) => <li key={match.id} className="match-item"><button className={`match-card ${detail?.id === match.id ? "active" : ""}`} onClick={() => selectMatch(match.id)}><span className="map-code">{mapDisplayName(match.metadata.map).slice(0, 2).toUpperCase()}</span><span><strong>{mapDisplayName(match.metadata.map)}</strong><small>{formatDate(match.played_at)} · {formatDuration(match.metadata.duration_ms)}</small>{match.note && <small className="match-note-preview">{match.note}</small>}</span><i>›</i></button><button className="delete-replay" title="删除录像" onClick={(event) => { event.stopPropagation(); if (confirm("删除这场录像及其所有分析数据？")) deleteMatch(match.id).catch((reason) => setError(String(reason))); }}>×</button></li>)}</ul>}</aside><article className="review-panel panel">{detail ? <MatchPanel detail={detail} content={gameContent} onBind={bind} onSaveNote={saveNote} agentStatus={agentStatus} onUsage={refreshAgentUsage} onOpenSettings={() => setSettingsOpen(true)} /> : <div className="empty-review"><span className="target-glyph">⌖</span><h2>选择一场对局</h2><p>查看双方阵容，确认你的玩家后开始复盘。</p></div>}</article></section>
+    <section className="workspace"><aside className="match-list panel"><div className="section-heading"><div><span className="eyebrow">HISTORY</span><h2>最近对局</h2></div><span>{matches.length}</span></div>{matches.length === 0 ? <div className="empty-state"><b>暂无录像</b><p>上传完成后，对局会出现在这里。</p></div> : <ul>{matches.map((match) => <li key={match.id} className="match-item"><button className={`match-card ${detail?.id === match.id ? "active" : ""}`} onClick={() => selectMatch(match.id).catch((reason) => setError(String(reason)))}><span className="map-code">{mapDisplayName(match.metadata.map).slice(0, 2).toUpperCase()}</span><span><strong>{mapDisplayName(match.metadata.map)}</strong><small>{formatDate(match.played_at)} · {formatDuration(match.metadata.duration_ms)}</small>{match.note && <small className="match-note-preview">{match.note}</small>}</span><i>›</i></button><button className="delete-replay" title="删除录像" onClick={(event) => { event.stopPropagation(); if (confirm("删除这场录像及其所有分析数据？")) deleteMatch(match.id).catch((reason) => setError(String(reason))); }}>×</button></li>)}</ul>}</aside><article className="review-panel panel">{detail ? <MatchPanel key={detail.id} detail={detail} content={gameContent} onBind={bind} onSaveNote={saveNote} agentStatus={agentStatus} onUsage={refreshAgentUsage} onOpenSettings={() => setSettingsOpen(true)} /> : <div className="empty-review"><span className="target-glyph">⌖</span><h2>选择一场对局</h2><p>查看双方阵容，确认你的玩家后开始复盘。</p></div>}</article></section>
     </>}
     <footer><span>VALCOACH // LOCAL MODE</span><span>{agentUsage ? `累计 ${agentUsage.total_tokens.toLocaleString()} TOKENS${agentUsage.priced_requests ? ` · $${(agentUsage.cost_microusd / 1_000_000).toFixed(4)} EST.` : ""}` : "暂无模型用量"}</span></footer>
     {settingsOpen && <SettingsModal status={agentStatus} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setAgentStatus(next); setSettingsOpen(false); }} />}
@@ -338,6 +354,7 @@ function JobProgress({ job, bundle, detail, onCancel }: { job: Job; bundle: Repl
 
 function MatchPanel({ detail, content, onBind, onSaveNote, agentStatus, onUsage, onOpenSettings }: { detail: MatchDetail; content: GameContent | null; onBind: (player: Player) => Promise<void>; onSaveNote:(note:string)=>Promise<void>; agentStatus: AgentStatus; onUsage: () => Promise<void>; onOpenSettings: () => void }) {
   const [binding, setBinding] = useState<string | null>(null);
+  const [bindingError, setBindingError] = useState("");
   const [tab, setTab] = useState<"roster" | "rounds" | "coach">("roster");
   const [compact, setCompact] = useState<CompactReplay | null>(null);
   const [maps, setMaps] = useState<MapMeta[]>([]);
@@ -348,8 +365,20 @@ function MatchPanel({ detail, content, onBind, onSaveNote, agentStatus, onUsage,
   const teamB = detail.players.filter((player) => player.team === "team_b");
   const rosterReady = teamA.length === 5 && teamB.length === 5;
   const boundPlayer = detail.players.find((player) => player.is_bound);
-  const choose = async (player: Player) => { setBinding(player.id); try { await onBind(player); } finally { setBinding(null); } };
-  useEffect(() => { api<CompactReplay>(`/api/matches/${detail.id}/compact`).then(setCompact).catch(() => setCompact(null)); }, [detail.id, boundPlayer?.id]);
+  const choose = async (player: Player) => {
+    setBinding(player.id); setBindingError("");
+    try { await onBind(player); }
+    catch (reason) { setBindingError(reason instanceof Error ? reason.message : "玩家选择保存失败"); }
+    finally { setBinding(null); }
+  };
+  useEffect(() => {
+    let active = true;
+    setCompact(null);
+    api<CompactReplay>(`/api/matches/${detail.id}/compact`)
+      .then((next) => { if (active) setCompact(next); })
+      .catch(() => { if (active) setCompact(null); });
+    return () => { active = false; };
+  }, [detail.id, boundPlayer?.id]);
   useEffect(() => { api<MapMeta[]>("/api/maps").then(setMaps).catch(() => setMaps([])); }, []);
   const mapMeta = maps.find((m) => m.map_url === detail.metadata.map || mapInternalName(m.map_url) === mapInternalName(detail.metadata.map));
   return <><div className="review-heading"><div><span className="eyebrow">MATCH REVIEW</span><h1>{mapDisplayName(detail.metadata.map)}</h1><p>{formatDate(detail.played_at)} · {formatDuration(detail.metadata.duration_ms)} · {detail.metadata.replay_id.slice(0, 13)}</p></div><CapabilityBadge capabilities={detail.capabilities} /></div>
@@ -357,7 +386,7 @@ function MatchPanel({ detail, content, onBind, onSaveNote, agentStatus, onUsage,
     <form className="match-note" onSubmit={async e=>{e.preventDefault();setSavingNote(true);try{await onSaveNote(note)}finally{setSavingNote(false)}}}><label>对局备注<input value={note} onChange={e=>setNote(e.target.value)} maxLength={1000} placeholder="例如：排位练习、重点复盘 B 点防守" /></label><button className="secondary" disabled={savingNote || note===detail.note}>{savingNote?"保存中…":"保存备注"}</button></form>
     <nav className="tab-bar">{(["roster", "rounds", "coach"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t === "roster" ? "阵容" : t === "rounds" ? "回合" : "教练"}</button>)}</nav>
     {(tab === "rounds" || tab === "coach") && <CapabilityNotice capabilities={detail.capabilities} />}
-    {tab === "roster" && <section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name, content)}</span>}</div>{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} content={content} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} content={content} binding={binding} onChoose={choose} /></div>}</section>}
+    {tab === "roster" && <section className="roster-section"><div className="section-title"><div><h2>本场哪个玩家是你？</h2><p>按本局使用的特工选择。双方阵容已分开显示。</p></div>{boundPlayer && <span className="selection-note">已选择 {displayAgent(boundPlayer.agent_name, content)}</span>}</div>{bindingError && <p className="notice error">{bindingError}</p>}{!rosterReady ? <div className="notice warning"><strong>需要重新导入这场录像</strong><span>这场对局由旧版解析器保存，尚未生成 5v5 阵容。重新上传原录像即可修复。</span></div> : <div className="teams"><TeamRoster title="A 队" tone="red" players={teamA} content={content} binding={binding} onChoose={choose} /><div className="versus">VS</div><TeamRoster title="B 队" tone="blue" players={teamB} content={content} binding={binding} onChoose={choose} /></div>}</section>}
     {tab === "rounds" && (mapMeta ? <MapViewer compact={compact} mapMeta={mapMeta} /> : <div className="empty-state"><p>{maps.length === 0 ? "内置地图数据未加载，请确认从项目根目录启动。" : `未找到匹配的地图元数据。当前录像地图: ${detail.metadata.map}`}</p></div>)}
     {tab === "coach" && <CoachPanel matchId={detail.id} status={agentStatus} playerSelected={!!boundPlayer} rounds={compact?.rounds ?? []} onUsage={onUsage} onOpenSettings={onOpenSettings} />}
   </>;
