@@ -125,6 +125,13 @@ struct PerformanceAccumulator {
     first_deaths: i64,
 }
 
+fn is_combat_hit(region: &str) -> bool {
+    matches!(
+        region.to_ascii_lowercase().as_str(),
+        "headshot" | "normal" | "legshot" | "head" | "body" | "leg" | "torso"
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MatchMetricRecord {
     pub id: String,
@@ -1061,11 +1068,15 @@ impl Database {
             .bind(user_id)
             .fetch_all(&self.pool)
             .await?;
-        let rounds_played: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rounds WHERE match_id = ? AND round_no >= 1")
-                .bind(match_id)
-                .fetch_one(&self.pool)
-                .await?;
+        let played_rounds = sqlx::query_scalar::<_, i64>(
+            "SELECT round_no FROM rounds WHERE match_id = ? AND round_no >= 1",
+        )
+        .bind(match_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        let rounds_played = played_rounds.len() as i64;
         let events = sqlx::query_as::<
             _,
             (
@@ -1099,26 +1110,46 @@ impl Database {
         let mut round_team_deaths = HashMap::<(i64, String), i64>::new();
         let mut player_round_kills = HashMap::<(i64, String), i64>::new();
         for (round_no, _timestamp, kind, attacker, victim, damage, hit_region) in events {
+            let Some(round_no) = round_no.filter(|round| played_rounds.contains(round)) else {
+                continue;
+            };
+            let opposing_players = attacker
+                .as_ref()
+                .and_then(|id| player_teams.get(id))
+                .zip(victim.as_ref().and_then(|id| player_teams.get(id)))
+                .is_some_and(|(attacker_team, victim_team)| attacker_team != victim_team);
             if kind == "damage" {
-                if let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id)) {
-                    let value = damage.unwrap_or_default().max(0.0);
+                // Decay, healing and actor/utility damage can appear as large damage RPCs.
+                // Only a regional hit on a known opponent is defensible combat damage.
+                if opposing_players
+                    && let Some(region) =
+                        hit_region.as_deref().filter(|region| is_combat_hit(region))
+                    && let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id))
+                {
+                    let value = damage
+                        .filter(|value| value.is_finite() && *value > 0.0)
+                        .unwrap_or_default()
+                        .min(150.0);
+                    if value == 0.0 {
+                        continue;
+                    }
                     stats.damage += value;
                     stats.combat_score += value;
-                    if let Some(region) = hit_region.as_deref().filter(|value| !value.is_empty()) {
-                        stats.hits += 1;
-                        if region.to_ascii_lowercase().contains("head") {
-                            stats.headshots += 1;
-                        }
+                    stats.hits += 1;
+                    if region.to_ascii_lowercase().contains("head") {
+                        stats.headshots += 1;
                     }
                 }
             } else if kind == "kill" {
-                if let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id)) {
+                if opposing_players
+                    && let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id))
+                {
                     stats.kills += 1;
                 }
                 if let Some(stats) = victim.as_ref().and_then(|id| totals.get_mut(id)) {
                     stats.deaths += 1;
                 }
-                if let Some(round_no) = round_no {
+                if opposing_players {
                     if first_kill_rounds.insert(round_no) {
                         if let Some(stats) = attacker.as_ref().and_then(|id| totals.get_mut(id)) {
                             stats.first_kills += 1;
@@ -1141,7 +1172,8 @@ impl Database {
                         let key = (round_no, attacker.clone());
                         let prior_player_kills = *player_round_kills.get(&key).unwrap_or(&0);
                         if let Some(stats) = totals.get_mut(&attacker) {
-                            stats.combat_score += kill_value + 50.0 * prior_player_kills as f64;
+                            stats.combat_score +=
+                                kill_value + if prior_player_kills > 0 { 50.0 } else { 0.0 };
                         }
                         *player_round_kills.entry(key).or_default() += 1;
                     }
@@ -3154,6 +3186,125 @@ mod tests {
     };
 
     use super::{AgentTokenUsage, Database, ReplayRoster, UserProfileRecord, UserRecord};
+
+    #[tokio::test]
+    async fn scoreboard_ignores_unverified_damage_and_bounds_multikill_bonus() {
+        let database = Database::connect("sqlite::memory:")
+            .await
+            .expect("database");
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ('u', 'u', 'hash')")
+            .execute(database.pool())
+            .await
+            .expect("user");
+        sqlx::query("INSERT INTO matches (id, user_id, parser_source, metadata_json, capabilities_json, summary_json) VALUES ('m', 'u', 'fixture', '{}', '{}', '{}')")
+            .execute(database.pool())
+            .await
+            .expect("match");
+        for (id, team) in [
+            ("a", "team_a"),
+            ("ally", "team_a"),
+            ("b1", "team_b"),
+            ("b2", "team_b"),
+            ("b3", "team_b"),
+        ] {
+            sqlx::query("INSERT INTO players (id, match_id, team) VALUES (?, 'm', ?)")
+                .bind(id)
+                .bind(team)
+                .execute(database.pool())
+                .await
+                .expect("player");
+        }
+        for round_no in [1, 2] {
+            sqlx::query("INSERT INTO rounds (id, match_id, round_no) VALUES (?, 'm', ?)")
+                .bind(format!("r{round_no}"))
+                .bind(round_no)
+                .execute(database.pool())
+                .await
+                .expect("round");
+        }
+        let events = [
+            // A gun hit and a regional ability hit are real opposing-player damage.
+            (1, 10, "damage", "a", Some("b1"), Some(80.0), Some("normal")),
+            (
+                1,
+                20,
+                "damage",
+                "a",
+                Some("b2"),
+                Some(150.0),
+                Some("headshot"),
+            ),
+            (1, 30, "damage", "a", Some("b3"), Some(50.0), Some("normal")),
+            // Fade-like decay, unknown targets, friendly fire and unplayed rounds
+            // must not inflate ACS, ADR or the headshot denominator.
+            (
+                1,
+                31,
+                "damage",
+                "a",
+                Some("b1"),
+                Some(1000.0),
+                Some("invalid"),
+            ),
+            (1, 32, "damage", "a", None, Some(600.0), Some("headshot")),
+            (
+                1,
+                33,
+                "damage",
+                "a",
+                Some("ally"),
+                Some(150.0),
+                Some("headshot"),
+            ),
+            (
+                0,
+                34,
+                "damage",
+                "a",
+                Some("b1"),
+                Some(150.0),
+                Some("headshot"),
+            ),
+            (1, 40, "kill", "a", Some("b1"), None, None),
+            (1, 50, "kill", "a", Some("b2"), None, None),
+            (1, 60, "kill", "a", Some("b3"), None, None),
+            (1, 70, "kill", "a", Some("ally"), None, None),
+        ];
+        for (round_no, timestamp, kind, attacker, victim, damage, region) in events {
+            sqlx::query("INSERT INTO combat_events (match_id, round_no, timestamp_ms, kind, attacker_player_id, victim_player_id, damage, hit_region, evidence_json) VALUES ('m', ?, ?, ?, ?, ?, ?, ?, '[]')")
+                .bind(round_no)
+                .bind(timestamp)
+                .bind(kind)
+                .bind(attacker)
+                .bind(victim)
+                .bind(damage)
+                .bind(region)
+                .execute(database.pool())
+                .await
+                .expect("combat event");
+        }
+        let scoreboard = database
+            .scoreboard_for_match_for_user("u", "m")
+            .await
+            .expect("scoreboard");
+        let attacker = scoreboard.iter().find(|row| row.player_id == "a").unwrap();
+        assert_eq!(attacker.kills, 3);
+        assert_eq!(attacker.damage, 280.0);
+        assert_eq!(attacker.adr, 140.0);
+        assert_eq!(attacker.combat_score, 770.0);
+        assert_eq!(attacker.acs, 385.0);
+        assert_eq!(attacker.first_kills, 1);
+        assert_eq!(attacker.headshots, 1);
+        assert!((attacker.headshot_percentage - 100.0 / 3.0).abs() < 0.001);
+        assert_eq!(
+            scoreboard
+                .iter()
+                .find(|row| row.player_id == "ally")
+                .unwrap()
+                .deaths,
+            1
+        );
+    }
 
     #[test]
     fn replay_roster_collapses_respawns_into_two_five_player_teams() {
